@@ -14,7 +14,9 @@ CREATE TABLE stations (
 CREATE TABLE lines (
     line_id   TEXT PRIMARY KEY,
     line_name TEXT NOT NULL,
-    color     TEXT
+    color     TEXT,
+    -- 'walkway' marks an on-foot transfer between two stations (see migrations/).
+    kind      TEXT NOT NULL DEFAULT 'metro' CHECK (kind IN ('metro', 'walkway'))
 );
 
 

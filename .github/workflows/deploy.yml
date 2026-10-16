@@ -1,0 +1,112 @@
+name: Deploy
+
+# Production deploys when dev is merged into main; PRs into main get a preview
+# deployment. Vercel's own Git auto-deploy is off (vercel.json), so nothing
+# ships without passing tests first.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy per branch/PR at a time; a newer push supersedes one in progress.
+concurrency:
+  group: deploy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  test:
+    name: Test
+    uses: ./.github/workflows/tests.yml
+
+  deploy:
+    name: ${{ github.event_name == 'pull_request' && 'Preview deploy' || 'Production deploy' }}
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Build
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN secret is not set (see README → Deployment)"
+            exit 1
+          fi
+          vercel pull --yes --environment="$TARGET" --token="$VERCEL_TOKEN"
+          if [ "$TARGET" = production ]; then
+            vercel build --prod --token="$VERCEL_TOKEN"
+          else
+            vercel build --token="$VERCEL_TOKEN"
+          fi
+
+      - name: Deploy
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET: ${{ github.event_name == 'pull_request' && 'preview' || 'production' }}
+        run: |
+          # APP_COMMIT is reported by /health so the next step can confirm
+          # which commit is live.
+          flags=(--prebuilt --token="$VERCEL_TOKEN" --env APP_COMMIT="$GITHUB_SHA")
+          if [ "$TARGET" = production ]; then flags+=(--prod); fi
+          url=$(vercel deploy "${flags[@]}")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $url"
+
+      - name: Smoke test
+        env:
+          # Production is checked on its public domain. Previews are checked on
+          # their deployment URL, which needs a protection-bypass secret if
+          # Vercel Deployment Protection is on.
+          BASE_URL: ${{ github.event_name == 'pull_request' && steps.deploy.outputs.url || vars.PRODUCTION_URL }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "::error::PRODUCTION_URL variable is not set (see README → Deployment)"
+            exit 1
+          fi
+          headers=()
+          if [ -n "$BYPASS" ]; then headers=(-H "x-vercel-protection-bypass: $BYPASS"); fi
+          fetch() { curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${headers[@]}" "$BASE_URL$1"; }
+
+          health=$(fetch /health)
+          echo "health: $health"
+          [ "$(echo "$health" | jq -r .status)" = ok ]
+          commit=$(echo "$health" | jq -r '.commit // empty')
+          if [ "$commit" != "$EXPECTED_COMMIT" ]; then
+            echo "::error::$BASE_URL is serving commit '${commit:-unknown}', expected $EXPECTED_COMMIT"
+            exit 1
+          fi
+
+          fetch / > /dev/null
+          fetch /static/favicon.ico > /dev/null
+          count=$(fetch /stations | jq '.stations | length')
+          echo "Stations served: $count"
+          [ "$count" -gt 0 ]
+          route=$(curl --fail --silent --show-error "${headers[@]}" -X POST "$BASE_URL/route" \
+            -H 'Content-Type: application/json' \
+            -d '{"source": "50", "dest": "92", "mode": "fastest"}')
+          echo "$route" | jq -e '.stations | length > 1' > /dev/null
+          echo "Route check passed"

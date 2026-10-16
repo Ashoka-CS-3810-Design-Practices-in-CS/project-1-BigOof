@@ -1,0 +1,258 @@
+"""End-to-end tests of the planner page's JavaScript."""
+
+import json
+import re
+
+from playwright.sync_api import Page, expect
+
+from big_o.app import LINE_METADATA, metro_graph
+
+
+def find_route(page: Page, source: str, destination: str, via: tuple[str, ...] = ()) -> None:
+    page.select_option("#source", label=source)
+    page.select_option("#destination", label=destination)
+    for name in via:
+        page.click("#add-stop")
+        page.locator(".via-row select").last.select_option(label=name)
+    page.click("#find-route")
+
+
+def stop_names(page: Page) -> list[str]:
+    # The name element also holds VIA/line chips; the station name is its first text node.
+    return page.locator(".stop-name").evaluate_all(
+        "els => els.map(el => el.firstChild.textContent.trim())"
+    )
+
+
+# --- Loading -----------------------------------------------------------------
+
+def test_loads_stations_and_network(app_page: Page):
+    count = len(metro_graph.stations)
+
+    expect(app_page.locator("#api-status")).to_have_text(f"{count} stations · network loaded")
+    # One placeholder option plus every station, in both dropdowns.
+    expect(app_page.locator("#source option")).to_have_count(count + 1)
+    expect(app_page.locator("#destination option")).to_have_count(count + 1)
+    expect(app_page.locator(".legend-item")).to_have_count(len(LINE_METADATA))
+    expect(app_page.locator("#add-stop")).to_be_enabled()
+
+
+def test_reports_unavailable_backend(page: Page, live_server):
+    page.route(
+        "**/stations",
+        lambda route: route.fulfill(status=500, content_type="application/json",
+                                    body=json.dumps({"message": "Database unavailable"})),
+    )
+    page.goto(live_server)
+
+    expect(page.locator("#api-status")).to_have_text("Route engine unavailable")
+    expect(page.locator("#message")).to_have_text("Database unavailable Make sure the Flask server is running.")
+    expect(page.locator("#add-stop")).to_be_disabled()
+
+
+# --- Finding a route ---------------------------------------------------------
+
+def test_finds_and_renders_a_route(app_page: Page):
+    find_route(app_page, "Central Secretariat", "Mandi House")
+
+    expect(app_page.locator("#total-time")).to_have_text("4 min 42 sec")
+    expect(app_page.locator("#interchanges")).to_have_text("0")
+    expect(app_page.locator("#stop-count")).to_have_text("3 stops")
+    expect(app_page.locator("#map-title")).to_have_text("Central Secretariat → Mandi House")
+    assert stop_names(app_page) == ["Central Secretariat", "Janpath", "Mandi House"]
+    expect(app_page.locator(".stop-meta").first).to_have_text(re.compile(r"^Start · "))
+    expect(app_page.locator(".stop-meta").last).to_have_text(re.compile(r"^Arrive · "))
+    expect(app_page.locator(".endpoint-tooltip", has_text="START · Central Secretariat")).to_be_visible()
+    expect(app_page.locator(".endpoint-tooltip", has_text="DESTINATION · Mandi House")).to_be_visible()
+
+
+def test_mode_buttons_toggle_and_are_sent(app_page: Page):
+    fewest = app_page.locator(".mode[data-mode=fewest_interchanges]")
+    fastest = app_page.locator(".mode[data-mode=fastest]")
+
+    fewest.click()
+    expect(fewest).to_have_class(re.compile(r"\bactive\b"))
+    expect(fastest).not_to_have_class(re.compile(r"\bactive\b"))
+
+    with app_page.expect_request("**/route") as request:
+        find_route(app_page, "Central Secretariat", "Mandi House")
+    assert request.value.post_data_json["mode"] == "fewest_interchanges"
+
+
+def test_rejects_same_source_and_destination(app_page: Page):
+    find_route(app_page, "Rajiv Chowk", "Rajiv Chowk")
+
+    expect(app_page.locator("#message")).to_have_text("Choose two different stations for your journey.")
+
+
+def test_route_error_message_names_stations(app_page: Page):
+    app_page.route(
+        "**/route",
+        lambda route: route.fulfill(status=404, content_type="application/json",
+                                    body=json.dumps({"error": "route_not_found", "message": "No route from 'x' to 'y'"})),
+    )
+    find_route(app_page, "Central Secretariat", "Mandi House")
+
+    expect(app_page.locator("#message")).to_have_text(
+        "There is no available route from Central Secretariat to Mandi House. Try another pair of stations."
+    )
+
+
+def test_swap_exchanges_endpoints_and_reverses_stops(app_page: Page, station_id):
+    app_page.select_option("#source", label="Central Secretariat")
+    app_page.select_option("#destination", label="Mandi House")
+    for name in ("Rajiv Chowk", "Barakhamba"):
+        app_page.click("#add-stop")
+        app_page.locator(".via-row select").last.select_option(label=name)
+
+    app_page.click("#swap")
+
+    expect(app_page.locator("#source")).to_have_value(station_id("Mandi House"))
+    expect(app_page.locator("#destination")).to_have_value(station_id("Central Secretariat"))
+    assert app_page.locator(".via-row select").evaluate_all("els => els.map(el => el.value)") == [
+        station_id("Barakhamba"),
+        station_id("Rajiv Chowk"),
+    ]
+
+
+# --- Intermediate (via) stops ------------------------------------------------
+
+def test_add_and_remove_stops(app_page: Page):
+    add = app_page.locator("#add-stop")
+    labels = app_page.locator(".via-row .field-label")
+
+    for _ in range(3):
+        add.click()
+    expect(labels).to_have_text(["Via stop 1", "Via stop 2", "Via stop 3"])
+    expect(add).to_be_disabled()  # limit is 3
+
+    app_page.locator(".via-remove").nth(1).click()
+    expect(labels).to_have_text(["Via stop 1", "Via stop 2"])
+    expect(add).to_be_enabled()
+
+
+def test_route_via_intermediate_station(app_page: Page, station_id):
+    with app_page.expect_request("**/route") as request:
+        find_route(app_page, "Central Secretariat", "Mandi House", via=("Rajiv Chowk",))
+    assert request.value.post_data_json["via"] == [station_id("Rajiv Chowk")]
+
+    expect(app_page.locator("#map-title")).to_have_text("Central Secretariat → Rajiv Chowk → Mandi House")
+    assert stop_names(app_page) == ["Central Secretariat", "Patel Chowk", "Rajiv Chowk", "Barakhamba", "Mandi House"]
+    rajiv = app_page.locator(".stop", has_text="Rajiv Chowk")
+    expect(rajiv.locator(".via-chip")).to_have_text("Via")
+    expect(rajiv.locator(".stop-dot")).to_have_class(re.compile(r"\bvia\b"))
+    expect(rajiv.locator(".stop-meta")).to_have_text(re.compile(r"^Via stop · Continue on "))
+    # Yellow -> Blue at Rajiv Chowk: one interchange, shown as two line chips.
+    expect(app_page.locator("#interchanges")).to_have_text("1")
+    expect(rajiv.locator(".line-chip")).to_have_count(2)
+    expect(app_page.locator(".endpoint-tooltip", has_text="VIA · Rajiv Chowk")).to_be_visible()
+
+
+def test_rejects_blank_stop(app_page: Page):
+    app_page.select_option("#source", label="Central Secretariat")
+    app_page.select_option("#destination", label="Mandi House")
+    app_page.click("#add-stop")
+    app_page.click("#find-route")
+
+    expect(app_page.locator("#message")).to_have_text("Choose a station for each via stop, or remove it.")
+
+
+def test_rejects_stop_repeating_previous_station(app_page: Page):
+    find_route(app_page, "Central Secretariat", "Mandi House", via=("Central Secretariat",))
+
+    expect(app_page.locator("#message")).to_have_text("Each stop must be different from the one before it.")
+
+
+def test_no_route_message_names_the_stop(app_page: Page):
+    app_page.route(
+        "**/route",
+        lambda route: route.fulfill(status=404, content_type="application/json",
+                                    body=json.dumps({"error": "route_not_found", "message": "No route from 'x' to 'y' via 'z'"})),
+    )
+    find_route(app_page, "Central Secretariat", "Mandi House", via=("Rajiv Chowk", "Barakhamba"))
+
+    expect(app_page.locator("#message")).to_have_text(
+        "There is no available route from Central Secretariat to Mandi House through Rajiv Chowk and Barakhamba. "
+        "Try a different stop, or remove it."
+    )
+
+
+# --- Walkways ----------------------------------------------------------------
+
+def test_walkway_shown_as_walk(app_page: Page):
+    find_route(app_page, "Noida Sector 50", "Noida Sec-61")
+
+    expect(app_page.locator(".stop", has_text="Noida Sector 51").locator(".stop-meta")).to_have_text(
+        "Walk to Noida Sec-52 (5 min)"
+    )
+    expect(app_page.locator("#interchanges")).to_have_text("1")
+
+
+# --- Map labels --------------------------------------------------------------
+
+def visible_label_boxes(page: Page) -> list[dict]:
+    return page.locator(".station-label:not(.is-hidden) span").evaluate_all(
+        "els => els.map(el => { const r = el.getBoundingClientRect(); "
+        "return {text: el.textContent, x1: r.left, y1: r.top, x2: r.right, y2: r.bottom}; })"
+    )
+
+
+def assert_no_overlaps(boxes: list[dict]) -> None:
+    overlaps = [
+        (a["text"], b["text"])
+        for i, a in enumerate(boxes)
+        for b in boxes[i + 1:]
+        if a["x1"] < b["x2"] - 1 and b["x1"] < a["x2"] - 1 and a["y1"] < b["y2"] - 1 and b["y1"] < a["y2"] - 1
+    ]
+    assert overlaps == []
+
+
+def test_station_labels_are_shown_without_overlapping(app_page: Page):
+    expect(app_page.locator(".station-label:not(.is-hidden)").first).to_be_attached()
+
+    boxes = visible_label_boxes(app_page)
+    assert boxes, "expected some interchange / terminus labels on the map"
+    assert_no_overlaps(boxes)
+
+
+def test_route_greys_out_the_rest_of_the_map(app_page: Page):
+    expect(app_page.locator("#route-map")).not_to_have_class(re.compile(r"\bhas-route\b"))
+
+    find_route(app_page, "Central Secretariat", "Mandi House", via=("Rajiv Chowk",))
+
+    expect(app_page.locator("#route-map")).to_have_class(re.compile(r"\bhas-route\b"))
+    # Off-route labels fade; route labels don't; endpoints and stops use their own tooltips.
+    expect(app_page.locator(".station-label.is-muted").first).to_be_attached()
+    expect(app_page.locator(".station-label:not(.is-muted):not(.is-hidden)", has_text="Rajiv Chowk")).to_have_count(0)
+    app_page.wait_for_timeout(800)  # let the zoom-to-route animation settle
+    assert_no_overlaps(visible_label_boxes(app_page))
+
+
+# --- Theme and title ---------------------------------------------------------
+
+def test_theme_toggle_switches_palette_and_persists(app_page: Page):
+    body = app_page.locator("body")
+    expect(body).to_have_attribute("data-theme", "dark")
+
+    app_page.click("#theme-toggle")
+
+    expect(body).to_have_attribute("data-theme", "light")
+    expect(app_page.locator("#theme-label")).to_have_text("Dark mode")
+    expect(app_page.locator("#theme-toggle")).to_have_attribute("aria-pressed", "true")
+    # Light mode swaps the pale gold for an accessible deep amber.
+    gold = app_page.evaluate("getComputedStyle(document.body).getPropertyValue('--gold').trim()")
+    assert gold == "#8a6510"
+
+    app_page.reload()
+    expect(body).to_have_attribute("data-theme", "light")
+
+
+def test_kinetic_title_animates_letters(browser, live_server):
+    # Opt back in to motion: the title is split into per-letter spans and revealed.
+    context = browser.new_context(reduced_motion="no-preference")
+    page = context.new_page()
+    page.goto(live_server)
+
+    expect(page.locator(".kinetic-char")).to_have_count(len("METERONORMATIVE"))
+    expect(page.locator(".kinetic-title")).to_have_class(re.compile(r"\bis-visible\b"))
+    context.close()

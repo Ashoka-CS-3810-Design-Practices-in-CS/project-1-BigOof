@@ -1,0 +1,27 @@
+[project]
+name = "big-o"
+version = "0.1.0"
+description = "This is the code for 'Big O', Shivanshi and Gayatri's project for DPCS"
+readme = "README.md"
+authors = [
+    { name = "Shivanshi Singh", email = "ssjunwaar@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.1.3",
+    "gunicorn>=26.2.0",
+]
+
+[project.scripts]
+big-o = "big_o:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-playwright>=0.10.0",
+]

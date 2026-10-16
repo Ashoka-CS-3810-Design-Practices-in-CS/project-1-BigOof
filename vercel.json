@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": false
+  },
+  "functions": {
+    "wsgi.py": {
+      "excludeFiles": "{tests/**,docs/**,htmlcov/**,.venv/**,.pytest_cache/**,**/__pycache__/**,.coverage,src/big_o/migrations/**}"
+    }
+  }
+}

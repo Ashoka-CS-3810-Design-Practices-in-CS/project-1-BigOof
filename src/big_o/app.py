@@ -1,15 +1,26 @@
+import os
 from pathlib import Path
 import sqlite3
 
 from flask import Flask, jsonify, render_template, request
 
-from back import MetroGraph
+from .back import MetroGraph
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "metro.db"
+MAX_VIA_STOPS = 3
 
 app = Flask(__name__)
+
+
+def connect_read_only(database_path):
+    """Open the database read-only.
+
+    The app never writes to it, serverless hosts like Vercel have a read-only
+    filesystem, and read-only mode can't create an empty file at a wrong path.
+    """
+    return sqlite3.connect(f"{Path(database_path).resolve().as_uri()}?mode=ro", uri=True)
 
 
 def load_metro_graph(database_path=DATABASE_PATH):
@@ -19,7 +30,7 @@ def load_metro_graph(database_path=DATABASE_PATH):
     if not Path(database_path).is_file():
         raise FileNotFoundError(f"Database file not found: {database_path}")
 
-    connection = sqlite3.connect(str(database_path))
+    connection = connect_read_only(database_path)
     connection.row_factory = sqlite3.Row
 
     try:
@@ -40,11 +51,15 @@ def load_metro_graph(database_path=DATABASE_PATH):
 
         # Each edge records the line used for that connection. Add connections
         # through MetroGraph so its adjacency list remains the routing source.
+        # The line's kind says whether the edge is a train ride or an on-foot
+        # transfer ('walkway'); edges whose line is missing count as metro.
         edge_rows = connection.execute(
             """
-            SELECT source_station, destination_station, line_id, travel_time
-            FROM edges
-            ORDER BY edge_id
+            SELECT e.source_station, e.destination_station, e.line_id, e.travel_time,
+                   COALESCE(l.kind, 'metro') AS kind
+            FROM edges e
+            LEFT JOIN lines l ON l.line_id = e.line_id
+            ORDER BY e.edge_id
             """
         ).fetchall()
 
@@ -54,15 +69,17 @@ def load_metro_graph(database_path=DATABASE_PATH):
                 second=row["destination_station"],
                 travel_time=row["travel_time"],
                 line=row["line_id"],
+                walk=row["kind"] == "walkway",
             )
 
         # Populate each Station's line set from its incident connections.
         # Station is frozen, so construct a replacement with the same ID/name
-        # and the line IDs observed in the graph's adjacency list.
-        from back import Station
+        # and the line IDs observed in the graph's adjacency list. Walkways
+        # aren't lines a station is "on", so they're left out.
+        from .back import Station
 
         for station_id, station in list(graph.stations.items()):
-            lines = {edge.line for edge in graph.adjacency[station_id]}
+            lines = {edge.line for edge in graph.adjacency[station_id] if not edge.walk}
             graph.stations[station_id] = Station(
                 code=station.code,
                 name=station.name,
@@ -73,15 +90,6 @@ def load_metro_graph(database_path=DATABASE_PATH):
         connection.close()
 
     return graph
-
-
-# Load once at startup; route requests use the in-memory graph.
-try:
-    metro_graph = load_metro_graph()
-    startup_error = None
-except (OSError, sqlite3.Error, KeyError, ValueError) as exc:
-    metro_graph = None
-    startup_error = str(exc)
 
 
 def route_to_dict(result):
@@ -104,22 +112,29 @@ def route_to_dict(result):
             "line_name": LINE_METADATA.get(segment.line, {}).get("name", segment.line),
             "color": LINE_METADATA.get(segment.line, {}).get("color", "#64748b"),
             "travel_time": segment.travel_time,
+            "walk": segment.walk,
         }
         for segment in result.segments
     ]
 
+    # An interchange is where you leave one line for another. Walking segments
+    # in between are skipped, so it's reported at the station you got off at.
     interchange_stations = []
-    for previous, current in zip(result.segments, result.segments[1:]):
-        if previous.line != current.line:
-            station_id = previous.to_station
+    last_ridden = None
+    for segment in result.segments:
+        if segment.walk:
+            continue
+        if last_ridden is not None and last_ridden.line != segment.line:
+            station_id = last_ridden.to_station
             interchange_stations.append(
                 {
                     "id": station_id,
                     "name": metro_graph.stations[station_id].name,
-                    "from_line": previous.line,
-                    "to_line": current.line,
+                    "from_line": last_ridden.line,
+                    "to_line": segment.line,
                 }
             )
+        last_ridden = segment
 
     return {
         "stations": station_details,
@@ -131,20 +146,41 @@ def route_to_dict(result):
 
 
 
-def get_line_metadata():
-    """Return canonical names and DMRC-style colours for each line."""
-    connection = sqlite3.connect(str(DATABASE_PATH))
+def get_line_metadata(database_path=None):
+    """Return canonical names, DMRC-style colours and kind ('metro'/'walkway') for each line."""
+    connection = connect_read_only(database_path or DATABASE_PATH)
     try:
-        rows = connection.execute("SELECT line_id, line_name, color FROM lines").fetchall()
+        rows = connection.execute("SELECT line_id, line_name, color, kind FROM lines").fetchall()
         return {
-            row[0]: {"name": row[1], "color": "#" + row[2].lstrip("#") if row[2] else "#64748b"}
+            row[0]: {
+                "name": row[1],
+                "color": "#" + row[2].lstrip("#") if row[2] else "#64748b",
+                "kind": row[3],
+            }
             for row in rows
         }
     finally:
         connection.close()
 
 
-LINE_METADATA = get_line_metadata()
+def load_app_data(database_path=DATABASE_PATH):
+    """Load the routing graph and line metadata, or capture why they couldn't be.
+
+    Returns ``(graph, line_metadata, error)``. On failure the graph is ``None`` and
+    the error message is served by /health and the other endpoints, instead of the
+    app crashing at import.
+    """
+    try:
+        # load_metro_graph checks the file exists first, so a missing database
+        # isn't silently created as an empty file by sqlite3.connect.
+        graph = load_metro_graph(database_path)
+        return graph, get_line_metadata(database_path), None
+    except (OSError, sqlite3.Error, KeyError, ValueError) as exc:
+        return None, {}, str(exc)
+
+
+# Load once at startup; route requests use the in-memory graph.
+metro_graph, LINE_METADATA, startup_error = load_app_data()
 
 
 @app.get("/network")
@@ -152,7 +188,7 @@ def get_network():
     """Return station coordinates and all line-coloured connections for the map."""
     if metro_graph is None:
         return jsonify({"error": "backend_not_ready", "message": startup_error or "Metro graph failed to load"}), 500
-    connection = sqlite3.connect(str(DATABASE_PATH))
+    connection = connect_read_only(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     try:
         station_rows = connection.execute(
@@ -173,7 +209,8 @@ def get_network():
             {"from": r["source_station"], "to": r["destination_station"],
              "line": r["line_id"],
              "line_name": LINE_METADATA.get(r["line_id"], {}).get("name", r["line_id"]),
-             "color": LINE_METADATA.get(r["line_id"], {}).get("color", "#64748b")}
+             "color": LINE_METADATA.get(r["line_id"], {}).get("color", "#64748b"),
+             "walk": LINE_METADATA.get(r["line_id"], {}).get("kind") == "walkway"}
             for r in edge_rows
         ],
         "lines": LINE_METADATA,
@@ -193,7 +230,14 @@ def health():
             "message": startup_error or "Metro graph failed to load",
         }), 500
 
-    return jsonify({"status": "ok"}), 200
+    body = {"status": "ok"}
+    # Report the deployed commit so the deploy pipeline can confirm the new
+    # release is the one serving traffic. Set by the deploy workflow (APP_COMMIT)
+    # or by Vercel for Git-based deployments (VERCEL_GIT_COMMIT_SHA).
+    commit = os.environ.get("APP_COMMIT") or os.environ.get("VERCEL_GIT_COMMIT_SHA")
+    if commit:
+        body["commit"] = commit
+    return jsonify(body), 200
 
 
 @app.get("/stations")
@@ -251,8 +295,29 @@ def get_route():
             "message": "mode must be 'fastest' or 'fewest_interchanges'.",
         }), 400
 
+    # Optional intermediate stations, visited in order between source and dest.
+    via = payload.get("via", [])
+    if (
+        not isinstance(via, list)
+        or len(via) > MAX_VIA_STOPS
+        or not all(isinstance(stop, str) and stop.strip() for stop in via)
+    ):
+        return jsonify({
+            "error": "invalid_via",
+            "message": f"via must be a list of at most {MAX_VIA_STOPS} station ID strings.",
+        }), 400
+
+    stops = [source, *via, destination]
+    if via and any(previous == current for previous, current in zip(stops, stops[1:])):
+        return jsonify({
+            "error": "invalid_via",
+            "message": "Each stop must differ from the stop before it.",
+        }), 400
+
     try:
-        if mode == "fastest":
+        if via:
+            result = metro_graph.routeVia(stops, fewest_interchanges=mode == "fewest_interchanges")
+        elif mode == "fastest":
             result = metro_graph.fastestRoute(source, destination)
         else:
             result = metro_graph.fewestInterchangesRoute(source, destination)
@@ -272,9 +337,6 @@ def get_route():
     response["mode"] = mode
     response["source"] = source
     response["dest"] = destination
+    response["via"] = via
     return jsonify(response), 200
 
-
-if __name__ == "__main__":
-    # Debug mode is suitable for local development only.
-    app.run(host="127.0.0.1", port=5000, debug=True)

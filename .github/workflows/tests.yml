@@ -1,0 +1,57 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - dev
+      - main
+  # Lets deploy.yml run the same test job as a gate before deploying.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run tests and generate coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Install Playwright browser
+        run: uv run --locked playwright install --with-deps chromium
+
+      - name: Run tests and generate HTML coverage
+        run: >-
+          uv run --locked pytest
+          --cov=big_o
+          --cov-branch
+          --cov-report=term-missing
+          --cov-report=html
+
+      - name: Upload HTML coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/
+          if-no-files-found: warn
+          retention-days: 7
