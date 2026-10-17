@@ -6,312 +6,99 @@
   <title>Meteronormative — Delhi Metro Planner</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
-  <style>
-    :root {
-      --ink: #202b45;
-      --ink-2: #293650;
-      --paper: #eee7d9;
-      --paper-2: #d8cebb;
-      --gold: #d8b765;
-      --gold-light: #f0d98b;
-      --muted: #a8b0c0;
-      --line: rgba(238,231,217,.18);
-      --green: #b9d6a5;
-      --red: #e8a18c;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; min-height: 100vh; color: var(--paper);
-      background: radial-gradient(ellipse at 80% 0%, #34405a 0, var(--ink) 45%, #192238 100%);
-      font-family: Helvetica, Arial, sans-serif;
-    }
-    .page { width: min(1180px, calc(100% - 44px)); margin: 0 auto; padding: 30px 0 44px; }
-    header { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom: 34px; }
-    .brand { display:flex; align-items:center; gap:12px; letter-spacing:-.04em; font-size:14px; font-weight:800; }
-    .brand-mark { width:32px; height:32px; display:grid; place-items:center; color:var(--ink); background:var(--gold); border-radius:50% 50% 50% 10%; transform:rotate(-12deg); font-size:17px; }
-    .brand-mark span { transform:rotate(12deg); }
-    .eyebrow { color:var(--gold-light); text-transform:none; font-size:10px; letter-spacing:.035em; font-weight:700; }
-    .brand-descriptor { max-width:460px; line-height:1.35; }
-    .status { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:11px; }
-    .header-tools { display:flex; align-items:center; gap:16px; }
-    .theme-toggle { display:inline-flex; align-items:center; gap:8px; border:1px solid #667087; color:var(--paper); background:transparent; border-radius:999px; padding:8px 12px; cursor:pointer; font:700 11px Helvetica, Arial, sans-serif; transition:background .2s,color .2s,border-color .2s; white-space:nowrap; }
-    .theme-toggle:hover { border-color:var(--gold); background:var(--gold); color:var(--ink); }
-    .theme-toggle:focus-visible { outline:2px solid var(--gold); outline-offset:3px; }
-    .status-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 12px #b9d6a577; }
-    h1 { font-size:clamp(38px, 5vw, 66px); line-height:.98; letter-spacing:-.065em; margin:10px 0 15px; font-weight:780; }
-    h1 em { color:var(--gold); font-style:normal; }
-    .planner { border-bottom:1px solid var(--line); padding:0 0 22px; display:grid; grid-template-columns:minmax(0,1fr) 42px minmax(0,1fr); gap:12px; align-items:end; }
-    .field-label { display:block; color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; margin:0 0 9px 2px; }
-    select { width:100%; appearance:none; background:var(--paper); color:var(--ink); border:0; border-radius:13px; padding:16px 42px 16px 16px; font:600 13px inherit; font-size:13px; font-weight:650; outline:2px solid transparent; transition:outline .15s; }
-    select:focus { outline-color:var(--gold); }
-    .select-wrap { position:relative; }
-    .select-wrap:after { content:'⌄'; position:absolute; right:16px; top:11px; color:var(--ink); font-size:18px; pointer-events:none; }
-    .swap { border:1px solid #657087; color:var(--paper); background:transparent; border-radius:50%; height:40px; width:40px; cursor:pointer; font-size:21px; margin-bottom:1px; transition:all .18s; }
-    .swap:hover { color:var(--ink); background:var(--gold); border-color:var(--gold); transform:rotate(180deg); }
-    .actions { grid-column:1 / -1; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; margin-top:5px; }
-    .mode { border:1px solid #667087; color:var(--paper); background:transparent; border-radius:999px; padding:11px 17px; cursor:pointer; font-size:11px; font-weight:750; letter-spacing:.01em; transition:all .15s; }
-    .mode.active, .mode:hover { background:var(--gold); border-color:var(--gold); color:var(--ink); }
-    .go { background:var(--paper); border:0; color:var(--ink); border-radius:999px; padding:11px 20px; cursor:pointer; font-size:11px; font-weight:850; }
-    .go:hover { background:var(--gold-light); }
-    /* Intermediate ("via") stops sit between the endpoints and the actions. */
-    .via-list { grid-column:1 / -1; display:flex; flex-direction:column; gap:12px; }
-    .via-list:empty { display:none; }
-    .via-controls { display:grid; grid-template-columns:minmax(0,1fr) 40px; gap:12px; align-items:center; }
-    .via-remove { border:1px solid #657087; color:var(--paper); background:transparent; border-radius:50%; height:40px; width:40px; cursor:pointer; font-size:18px; transition:all .18s; }
-    .via-remove:hover { color:var(--ink); background:var(--red); border-color:var(--red); }
-    .add-stop { margin-right:auto; border:1px dashed #667087; color:var(--paper); background:transparent; border-radius:999px; padding:11px 17px; cursor:pointer; font-size:11px; font-weight:750; transition:all .15s; }
-    .add-stop:hover:not(:disabled) { border-color:var(--gold); color:var(--gold-light); }
-    .add-stop:disabled { opacity:.45; cursor:not-allowed; }
-    .via-chip { display:inline-block; margin-left:6px; font-size:8px; color:var(--gold-light); border:1px solid var(--gold); border-radius:999px; padding:2px 6px; vertical-align:1px; font-weight:850; letter-spacing:.08em; text-transform:uppercase; }
-    .stop-dot.via { border-radius:3px; box-shadow:0 0 0 3px #d8b76555; }
-
-    /* Two-column layout: planner + stops on the left, map on the right. */
-    .layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:start; }
-    .left-col { display:flex; flex-direction:column; gap:14px; min-width:0; }
-
-    .map-panel { background:var(--paper); color:var(--ink); border-radius:22px 22px 22px 5px; padding:19px 21px 16px; overflow:hidden; position:relative; }
-    .panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
-    .panel-kicker { text-transform:uppercase; font-size:9px; font-weight:850; letter-spacing:.17em; color:#77766e; }
-    .panel-title { font-size:19px; letter-spacing:-.04em; font-weight:800; margin-top:4px; }
-    .map-badge { border:1px solid #c4bba9; border-radius:999px; padding:6px 9px; font-size:9px; font-weight:800; color:#69685f; white-space:nowrap; }
-    .map-stage { margin-top:7px; position:relative; }
-    #route-map { width:100%; height:380px; border-radius:14px; background:#e8e0d1; z-index:1; }
-    .leaflet-container { font: 11px Helvetica, Arial, sans-serif; }
-    .leaflet-control-attribution { font-size:8px !important; }
-    .endpoint-tooltip { border:0; border-radius:999px; background:#202b45; color:#f5f0e7; padding:5px 8px; font-size:10px; font-weight:800; box-shadow:0 2px 8px #202b4533; }
-    .endpoint-tooltip:before { display:none; }
-    /* Permanent labels for interchanges and line ends; collisions are resolved in JS. */
-    .station-label { pointer-events:none; }
-    .station-label span { position:absolute; left:6px; top:-7px; white-space:nowrap; font:700 9.5px/14px Helvetica, Arial, sans-serif; color:#202b45; letter-spacing:-.01em;
-      text-shadow:0 0 2px #f6f1e7, 0 0 2px #f6f1e7, 0 0 3px #f6f1e7, 0 0 4px #f6f1e7; transition:opacity .25s; }
-    .station-label.is-interchange span { font-weight:850; }
-    .station-label.is-hidden { display:none; }
-    .station-label.is-muted span { opacity:.35; }
-    /* Once a route is drawn, everything that isn't on it recedes. */
-    .leaflet-tile-pane { transition:filter .4s, opacity .4s; }
-    #route-map.has-route .leaflet-tile-pane { filter:grayscale(1) contrast(.9); opacity:.55; }
-    .line-legend { display:flex; flex-wrap:wrap; gap:7px 12px; margin-top:10px; }
-    .legend-item { display:inline-flex; align-items:center; gap:5px; font-size:9px; color:#5d5b55; }
-    .legend-swatch { width:15px; height:4px; border-radius:3px; display:inline-block; }
-
-    /* Stops live in a bordered box, as in the layout mockup. */
-    .route-panel { border:3px solid var(--paper); border-radius:10px; padding:0 18px 12px; }
-    .route-summary { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:14px 0 14px; border-bottom:1px solid var(--line); }
-    .summary-label { color:var(--muted); font-size:9px; text-transform:uppercase; letter-spacing:.16em; font-weight:800; }
-    .summary-value { color:var(--paper); font-size:25px; font-weight:800; letter-spacing:-.05em; margin-top:5px; }
-    .summary-sub { color:var(--muted); font-size:10px; margin-top:3px; }
-    .interchange-count { text-align:right; }
-    .route-list-head { display:flex; justify-content:space-between; align-items:center; padding:14px 0 9px; }
-    .route-list-head h2 { font-size:12px; margin:0; letter-spacing:-.01em; }
-    .route-list-head span { color:var(--muted); font-size:10px; }
-    #route-list { list-style:none; padding:0 0 0 2px; margin:0; max-height:250px; overflow:auto; }
-    .stop { display:grid; grid-template-columns:21px 1fr; gap:10px; min-height:56px; position:relative; }
-    .stop-rail { display:flex; flex-direction:column; align-items:center; }
-    .stop-dot { width:10px; height:10px; border-radius:50%; background:var(--gold); border:2px solid var(--gold); z-index:1; margin-top:3px; }
-    .stop-dot.interchange { background:var(--ink); border-color:var(--gold); box-shadow:0 0 0 3px #d8b76533; }
-    .stop-line { flex:1; width:2px; background:#5c667c; min-height:34px; }
-    .stop:last-child .stop-line { display:none; }
-    .stop-name { font-size:12px; font-weight:750; line-height:1.3; }
-    .stop-meta { color:var(--muted); font-size:10px; margin-top:4px; }
-    .line-chip { display:inline-block; margin-left:6px; font-size:8px; color:var(--ink); background:var(--gold); border-radius:999px; padding:3px 6px; vertical-align:1px; font-weight:850; }
-    .empty-route { color:var(--muted); font-size:12px; line-height:1.7; padding:12px 0 20px; }
-    .message { color:var(--paper); font-size:15px; line-height:1.5; font-weight:650; }
-    .message:empty { display:none; }
-    .foot { display:flex; justify-content:space-between; gap:12px; margin-top:28px; color:#7f899d; font-size:10px; }
-    .foot strong { color:#b9c0cd; font-weight:650; }
-
-    /* A compact title row: the kinetic title sits above the planner rather than filling the screen. */
-    html { scroll-behavior:smooth; }
-    body { overflow-x:hidden; }
-    .kinetic-hero { display:flex; align-items:stretch; position:relative; overflow:hidden; margin:0 0 26px; padding:10px 0 18px; border-bottom:1px solid var(--line); }
-    .hero-word-wrap { position:relative; z-index:2; width:100%; display:flex; flex-direction:column; justify-content:center; }
-    .kinetic-title { position:relative; z-index:2; margin:0; width:100%; white-space:nowrap; font-family:Helvetica, Arial, sans-serif; font-size:clamp(34px, 6vw, 84px); line-height:.92; letter-spacing:-.085em; font-weight:900; max-width:none; overflow:visible; }
-    .kinetic-word { display:inline-block; white-space:nowrap; max-width:100%; }
-    .kinetic-char { display:inline-block; opacity:0; transform:translate3d(0,45%,0); filter:blur(4px); transition:opacity .45s ease, transform .65s cubic-bezier(.2,.75,.15,1), filter .65s ease; transition-delay:calc(var(--char-index) * 22ms); }
-    .kinetic-title.is-visible .kinetic-char { opacity:1; transform:translate3d(0,0,0); filter:blur(0); }
-    .title-period { color:var(--gold); display:inline-block; }
-    .kinetic-title.is-visible .title-period { transform:none; }
-    .hero-bottomline { position:relative; z-index:3; display:flex; justify-content:flex-end; align-items:center; gap:20px; padding-top:12px; color:#c1c7d2; font-size:10px; font-weight:800; letter-spacing:.14em; }
-    .scroll-cue { display:flex; align-items:center; gap:10px; color:var(--gold-light); }
-    .scroll-cue i { width:30px; height:1px; display:inline-block; background:var(--gold); animation:cuePulse 1.5s ease-in-out infinite; transform-origin:left; }
-    @keyframes cuePulse { 0%,100%{transform:scaleX(.35);opacity:.45} 50%{transform:scaleX(1);opacity:1} }
-    .planner { position:relative; transition:transform .3s ease; }
-    .reveal-section { opacity:0; transform:translateY(42px) scale(.985); filter:blur(5px); transition:opacity .8s ease, transform .85s cubic-bezier(.16,1,.3,1), filter .8s ease; }
-    .reveal-section.in-view { opacity:1; transform:translateY(0) scale(1); filter:blur(0); }
-    .map-panel { transition:transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s ease; }
-    .map-panel:hover { transform:translateY(-4px); box-shadow:0 24px 55px #080f201f; }
-    .route-panel { transition:transform .35s ease; }
-    .stop { opacity:0; transform:translateX(16px); animation:stopArrive .45s ease forwards; animation-delay:calc(var(--stop-index,0) * 45ms); }
-    @keyframes stopArrive { to { opacity:1; transform:translateX(0); } }
-    .mode, .go, .swap { position:relative; overflow:hidden; }
-    .mode:active, .go:active, .swap:active { transform:scale(.96); }
-    .cursor-aura { position:fixed; width:190px; height:190px; border-radius:50%; pointer-events:none; z-index:10; left:0; top:0; opacity:0; background:radial-gradient(circle, #d8b76516 0, #d8b76508 38%, transparent 70%); transform:translate(-50%,-50%); transition:opacity .2s; mix-blend-mode:screen; }
-    body.cursor-active .cursor-aura { opacity:1; }
-    @media (pointer:coarse) { .cursor-aura { display:none; } }
-    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; } .reveal-section { opacity:1; transform:none; filter:none; } .kinetic-char { opacity:1; transform:none; filter:none; } }
-
-    @media (max-width:900px) {
-      .layout { grid-template-columns:1fr; }
-    }
-    @media (max-width:760px) {
-      .page { width:calc(100% - 28px); padding-top:20px; }
-      .kinetic-hero { margin:0 0 20px; }
-      .kinetic-title { font-size:clamp(26px, 7.2vw, 56px); letter-spacing:-.085em; }
-      .hero-bottomline { font-size:8px; letter-spacing:.12em; }
-      .brand-descriptor { max-width:250px; font-size:9px; }
-      header { margin-bottom:25px; }
-      .planner { grid-template-columns:minmax(0,1fr) 36px minmax(0,1fr); gap:8px; }
-      .swap { width:34px; height:34px; }
-      select { padding:14px 28px 14px 10px; font-size:11px; }
-      #route-map { height:300px; }
-      .route-panel { padding:0 12px 10px; }
-      .foot { flex-direction:column; }
-    }
-    @media (max-width:410px) { .status { display:none; } .planner { grid-template-columns:1fr 34px 1fr; } .mode,.go { padding:10px 12px; } }
-
-    /* Light theme keeps the same warm paper and gold accents, with an airy canvas. */
-    /* The dark theme's pale gold fails contrast on a light canvas, so light mode swaps in a deep amber
-       (≥4.5:1 against both the page and white text) and inverts button text to white. */
-    body[data-theme="light"] { --gold:#8a6510; --gold-light:#7a590c; color:#202b45; background:radial-gradient(ellipse at 80% 0%, #ffffff 0, #f3f1eb 58%, #e8e5dc 100%); }
-    body[data-theme="light"] .brand-mark { color:#fff; }
-    body[data-theme="light"] .theme-toggle:hover { color:#fff; }
-    body[data-theme="light"] .stop-dot.interchange { background:#fff; box-shadow:0 0 0 3px #8a651033; }
-    body[data-theme="light"] .cursor-aura { mix-blend-mode:multiply; background:radial-gradient(circle, #8a65101f 0, #8a65100d 38%, transparent 70%); }
-    body[data-theme="light"] .status { color:#59647a; }
-    body[data-theme="light"] .field-label,
-    body[data-theme="light"] .summary-label,
-    body[data-theme="light"] .summary-sub,
-    body[data-theme="light"] .route-list-head span,
-    body[data-theme="light"] .stop-meta { color:#687186; }
-    body[data-theme="light"] .hero-bottomline { color:#4f5a70; }
-    body[data-theme="light"] .planner,
-    body[data-theme="light"] .route-summary,
-    body[data-theme="light"] .kinetic-hero { border-color:rgba(32,43,69,.18); }
-    body[data-theme="light"] .route-panel { border-color:#202b45; }
-    body[data-theme="light"] .summary-value { color:#202b45; }
-    body[data-theme="light"] .swap,
-    body[data-theme="light"] .via-remove,
-    body[data-theme="light"] .add-stop,
-    body[data-theme="light"] .mode,
-    body[data-theme="light"] .theme-toggle { color:#202b45; border-color:#a8afbc; }
-    body[data-theme="light"] .mode.active,
-    body[data-theme="light"] .mode:hover { background:var(--gold); border-color:var(--gold); color:#fff; }
-    body[data-theme="light"] .go { background:#202b45; color:#f5f0e7; }
-    body[data-theme="light"] .go:hover { background:#3b4965; }
-    body[data-theme="light"] .message { color:#202b45; }
-    body[data-theme="light"] .foot { color:#687186; }
-    body[data-theme="light"] .foot strong { color:#202b45; }
-    body[data-theme="light"] .stop-line { background:#c3c8d1; }
-    @media (max-width:760px) { header { align-items:flex-start; } .header-tools { gap:8px; flex-direction:column-reverse; align-items:flex-end; } .theme-toggle { padding:7px 9px; font-size:10px; } }
-  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Pixelify+Sans:wght@400..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='techno.css') }}">
 </head>
 <body>
-  <div class="cursor-aura" aria-hidden="true"></div>
+  <script>
+    // Set the saved theme before anything paints, so dark mode doesn't flash light on load.
+    try { if (localStorage.getItem('metro-theme-v2') === 'dark') document.body.dataset.theme = 'dark'; } catch (_) {}
+  </script>
   <main class="page">
-    <header>
-      <div class="brand"><div class="brand-mark"><span>↗</span></div><div>METERONORMATIVE<div class="eyebrow brand-descriptor" style="margin-top:3px">Interactive Delhi Metro Route Planner and Visualiser</div></div></div>
-      <div class="header-tools">
-        <div class="status"><span class="status-dot"></span><span id="api-status">Connecting to route engine</span></div>
-        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to light mode" aria-pressed="false"><span id="theme-icon" aria-hidden="true">☼</span><span id="theme-label">Light mode</span></button>
+    <header class="desktop-head">
+      <div class="hero" id="hero">
+        <h1 class="kinetic-title" aria-label="Meteronormative"><span class="kinetic-word">Meteronormative</span></h1>
+        <p class="tagline">A route planner for the Delhi Metro</p>
       </div>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode"><span id="theme-icon" aria-hidden="true">☾</span><span id="theme-label">Dark mode</span></button>
     </header>
 
-    <section class="hero kinetic-hero" id="hero" aria-label="Meteronormative">
-      <div class="hero-word-wrap">
-        <h1 class="kinetic-title" aria-label="Meteronormative"><span class="kinetic-word">METERONORMATIVE</span></h1>
-        <div class="hero-bottomline"><span class="scroll-cue"><i></i> SCROLL TO EXPLORE</span></div>
-      </div>
-    </section>
-
     <div class="layout">
-      <div class="left-col reveal-section">
-        <section class="planner" aria-label="Route planner">
-          <div>
-            <label class="field-label" for="source">Start at</label>
-            <div class="select-wrap"><select id="source"><option value="">Loading stations…</option></select></div>
-          </div>
-          <button class="swap" id="swap" title="Swap stations" aria-label="Swap source and destination">⇄</button>
-          <div>
-            <label class="field-label" for="destination">Destination</label>
-            <div class="select-wrap"><select id="destination"><option value="">Loading stations…</option></select></div>
-          </div>
-          <div class="via-list" id="via-list" aria-label="Intermediate stations"></div>
-          <div class="actions">
-            <button class="add-stop" id="add-stop" type="button" disabled>+ Add stop</button>
-            <button class="mode active" data-mode="fastest">Fastest route</button>
-            <button class="mode" data-mode="fewest_interchanges">Least interchanges</button>
-            <button class="go" id="find-route">Find my route ↗</button>
-          </div>
-        </section>
-        <div class="message" id="message" role="status" aria-live="polite"></div>
-
-        <aside class="route-panel">
-          <div class="route-summary">
-            <div><div class="summary-label">Estimated travel time</div><div class="summary-value" id="total-time">—</div><div class="summary-sub" id="time-detail"></div></div>
-            <div class="interchange-count"><div class="summary-label">Interchanges</div><div class="summary-value" id="interchanges">—</div><div class="summary-sub" id="station-count">No stations yet</div></div>
-          </div>
-          <div class="route-list-head"><h2>Stops along the way</h2><span id="stop-count">0 stops</span></div>
-          <ol id="route-list"><li class="empty-route">Your stop-by-stop directions will appear here once you find a route.</li></ol>
-        </aside>
-      </div>
-
-      <div class="reveal-section">
-        <section class="map-panel">
-          <div class="panel-head"><div><div class="panel-title" id="map-title"></div></div><span class="map-badge" id="map-badge">SCHEMATIC VIEW</span></div>
-          <div class="map-stage">
-            <div id="route-map" role="img" aria-label="Geographic map of the Delhi Metro network"></div>
-            <div class="line-legend" id="line-legend" aria-label="Metro line colour legend"></div>
+      <div class="left-col">
+        <section class="window" aria-labelledby="planner-title">
+          <div class="title-bar"><h2 id="planner-title">Plan a journey</h2></div>
+          <div class="window-body">
+            <div class="planner">
+              <div>
+                <label class="field-label" for="source">From</label>
+                <div class="select-wrap"><select id="source"><option value="">Loading stations…</option></select></div>
+              </div>
+              <button class="swap" id="swap" type="button" title="Swap stations" aria-label="Swap start and destination">⇄</button>
+              <div>
+                <label class="field-label" for="destination">To</label>
+                <div class="select-wrap"><select id="destination"><option value="">Loading stations…</option></select></div>
+              </div>
+              <div class="via-list" id="via-list" aria-label="Stops on the way"></div>
+              <div class="actions">
+                <button class="add-stop" id="add-stop" type="button" disabled>Add stop</button>
+                <div class="mode-group" role="group" aria-label="Route preference">
+                  <button class="mode active" type="button" data-mode="fastest" aria-pressed="true">Fastest</button>
+                  <button class="mode" type="button" data-mode="fewest_interchanges" aria-pressed="false">Fewest interchanges</button>
+                </div>
+                <button class="go" id="find-route" type="button">Find route</button>
+              </div>
+            </div>
+            <div class="message" id="message" role="status" aria-live="polite"></div>
           </div>
         </section>
+
+        <section class="window" aria-labelledby="route-title">
+          <div class="title-bar"><h2 id="route-title">Your route</h2></div>
+          <div class="window-body">
+            <div class="route-summary">
+              <div><div class="field-label">Travel time</div><div class="summary-value" id="total-time">—</div><div class="summary-sub" id="time-detail"></div></div>
+              <div><div class="field-label">Interchanges</div><div class="summary-value" id="interchanges">—</div><div class="summary-sub" id="station-count">No stations yet</div></div>
+            </div>
+            <div class="route-list-head"><h3>Stops along the way</h3><span id="stop-count">0 stops</span></div>
+            <ol id="route-list"><li class="empty-route">Choose two stations and press Find route to see every stop.</li></ol>
+          </div>
+        </section>
       </div>
+
+      <section class="window" aria-labelledby="map-title">
+        <div class="title-bar"><h2 id="map-title">Delhi Metro network</h2></div>
+        <div class="window-body">
+          <div class="map-frame"><div id="route-map" role="img" aria-label="Geographic map of the Delhi Metro network"></div></div>
+          <div class="line-legend" id="line-legend" aria-label="Metro line colours"></div>
+        </div>
+        <div class="status-bar"><span id="api-status">Connecting to route engine</span><span id="map-badge">Whole network</span></div>
+      </section>
     </div>
-    <footer class="foot reveal-section"><span><strong>METERONORMATIVE</strong> · A Delhi Metro route planner</span><span>Times and connections are based on the supplied route database.</span></footer>
+    <footer class="foot"><span>Meteronormative, a Delhi Metro route planner</span><span>Times and connections come from the route database.</span></footer>
   </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
-(() => {
-  const aura = document.querySelector('.cursor-aura');
-  if (aura && window.matchMedia('(pointer:fine)').matches && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    window.addEventListener('pointermove', event => { aura.style.left = `${event.clientX}px`; aura.style.top = `${event.clientY}px`; document.body.classList.add('cursor-active'); }, { passive: true });
-    document.addEventListener('pointerleave', () => document.body.classList.remove('cursor-active'));
-  }
-  const title = document.querySelector('.kinetic-title');
-  const word = document.querySelector('.kinetic-word');
-  if (title && word && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    const text = word.textContent;
-    word.textContent = '';
-    [...text].forEach((char, index) => {
-      const span = document.createElement('span');
-      span.className = 'kinetic-char'; span.style.setProperty('--char-index', index);
-      span.textContent = char === ' ' ? ' ' : char;
-      word.appendChild(span);
-    });
+  // The page's one motion moment: the title types itself out once on load.
+  (() => {
+    const title = document.querySelector('.kinetic-title');
+    const word = document.querySelector('.kinetic-word');
+    if (!title || !word) return;
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const text = word.textContent;
+      word.textContent = '';
+      [...text].forEach((char, index) => {
+        const span = document.createElement('span');
+        span.className = 'kinetic-char'; span.style.setProperty('--char-index', index);
+        span.textContent = char === ' ' ? ' ' : char;
+        word.appendChild(span);
+      });
+    }
     requestAnimationFrame(() => setTimeout(() => title.classList.add('is-visible'), 120));
-  } else if (title) title.classList.add('is-visible');
-
-  const revealTargets = document.querySelectorAll('.reveal-section');
-  const hero = document.getElementById('hero');
-  if ('IntersectionObserver' in window) {
-    const observer = new IntersectionObserver(entries => entries.forEach(entry => {
-      entry.target.classList.toggle('in-view', entry.isIntersecting);
-      // Re-trigger the kinetic title on both downward and upward scroll.
-      if (entry.target === hero) {
-        if (entry.isIntersecting) {
-          title?.classList.add('is-visible');
-        } else {
-          title?.classList.remove('is-visible');
-        }
-      }
-    }), { threshold: 0.12, rootMargin: '0px 0px -30px 0px' });
-    [...revealTargets, hero].filter(Boolean).forEach(el => observer.observe(el));
-  } else {
-    revealTargets.forEach(el => el.classList.add('in-view'));
-    title?.classList.add('is-visible');
-  }
-})();
+  })();
 </script>
 <script>
-  // Theme toggle: use the saved choice when available; default to the original dark theme.
   const themeToggle = document.getElementById('theme-toggle');
   const themeLabel = document.getElementById('theme-label');
   const themeIcon = document.getElementById('theme-icon');
@@ -321,14 +108,11 @@
     themeLabel.textContent = light ? 'Dark mode' : 'Light mode';
     themeIcon.textContent = light ? '☾' : '☼';
     themeToggle.setAttribute('aria-label', light ? 'Switch to dark mode' : 'Switch to light mode');
-    themeToggle.setAttribute('aria-pressed', String(light));
-    try { localStorage.setItem('metro-theme', light ? 'light' : 'dark'); } catch (_) { /* Storage may be unavailable in private browsing. */ }
+    try { localStorage.setItem('metro-theme-v2', light ? 'light' : 'dark'); } catch (_) {}
   }
-  let initialTheme = 'dark';
-  try { if (localStorage.getItem('metro-theme') === 'light') initialTheme = 'light'; } catch (_) {}
+  let initialTheme = 'light';
+  try { if (localStorage.getItem('metro-theme-v2') === 'dark') initialTheme = 'dark'; } catch (_) {}
   applyTheme(initialTheme);
-  // Report a user interaction to the server log (/log). sendBeacon doesn't block the
-  // page or delay navigation; logging must never break the UI, so failures are ignored.
   function logEvent(event, details = {}) {
     const body = JSON.stringify({ event, details });
     console.debug('[ui]', event, details);
@@ -336,9 +120,8 @@
       if (!(navigator.sendBeacon && navigator.sendBeacon('/log', new Blob([body], { type: 'application/json' })))) {
         fetch('/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
       }
-    } catch (_) { /* never let logging break the page */ }
+    } catch (_) {}
   }
-  // Uncaught errors and rejected promises are reported too, so production bugs show up in the logs.
   window.addEventListener('error', event => logEvent('js_error', {
     message: String(event.message).slice(0, 200), source: String(event.filename || '').slice(-100), line: event.lineno ?? null,
   }));
@@ -364,7 +147,7 @@
   const stationDots = new Map();
   const labelMarkers = [];
   let routeStationIds = new Set();
-  let pinnedLabelIds = new Set(); // start, destination and via stops carry their own tooltips
+  let pinnedLabelIds = new Set();
   const viaList = document.getElementById('via-list');
   const addStopButton = document.getElementById('add-stop');
   const MAX_VIA_STOPS = 3; // keep in sync with MAX_VIA_STOPS in app.py
@@ -378,6 +161,17 @@
   };
   function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  }
+  // Pale line colours (Yellow, Aqua…) get black chip text so the name stays readable.
+  function isLightColor(hex) {
+    const match = /^#([0-9a-f]{6})$/i.exec(String(hex));
+    if (!match) return false;
+    const n = parseInt(match[1], 16);
+    return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 150;
+  }
+  function lineChip(line) {
+    const color = colorForLine(line);
+    return `<span class="line-chip${isLightColor(color) ? ' on-light' : ''}" style="background:${color}">${escapeHtml(lineName(line))}</span>`;
   }
   function colorForLine(line) {
     const metadata = networkData?.lines?.[line];
@@ -394,7 +188,6 @@
     networkData = data;
     data.stations.forEach(station => stationById.set(String(station.id), station));
     metroMap = L.map('route-map', { zoomControl: true, scrollWheelZoom: true, preferCanvas: true });
-    // A warm, low-contrast basemap keeps the metro lines visually dominant.
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
       maxZoom: 19,
@@ -408,7 +201,7 @@
       if (!a || !b || !Number.isFinite(Number(a.lat)) || !Number.isFinite(Number(b.lat))) return;
       const color = edge.color || colorForLine(edge.line);
       const layer = L.polyline([[a.lat, a.lon], [b.lat, b.lon]], {
-        color, weight: 3, opacity: .72, dashArray: edge.walk ? '3 5' : null, // walkways are dashed
+        color, weight: 3, opacity: .72, dashArray: edge.walk ? '3 5' : null,
         lineCap: 'round', lineJoin: 'round'
       }).bindTooltip(`${escapeHtml(a.name)} ↔ ${escapeHtml(b.name)} · ${escapeHtml(edge.line_name)}`).addTo(networkLayer);
       edgeLayers.push({ layer, color });
@@ -416,28 +209,29 @@
     data.stations.forEach(station => {
       if (!Number.isFinite(Number(station.lat)) || !Number.isFinite(Number(station.lon))) return;
       const dot = L.circleMarker([station.lat, station.lon], {
-        radius: 2.5, color: '#f5f0e7', weight: 1, fillColor: '#303b51', fillOpacity: .9
+        radius: 2.5, color: '#fbf8ef', weight: 1, fillColor: '#4a4639', fillOpacity: .9
       }).bindTooltip(escapeHtml(station.name)).addTo(networkLayer);
       stationDots.set(String(station.id), dot);
     });
+    // Canvas measurement doesn't wait for web fonts, so load the label fonts first.
+    try { await Promise.all([LABEL_FONT, INTERCHANGE_LABEL_FONT, TOOLTIP_FONT].map(font => document.fonts.load(font))); } catch (_) {}
     buildStationLabels(data);
     const coords = data.stations.filter(st => Number.isFinite(Number(st.lat)) && Number.isFinite(Number(st.lon))).map(st => [st.lat, st.lon]);
     if (coords.length) metroMap.fitBounds(coords, { padding: [12, 12] });
-    // Leaflet fires the first moveend before 'load', i.e. before the label markers
-    // exist, so place labels explicitly once the initial view is set.
     declutterLabels();
     const lineEntries = Object.entries(data.lines || {});
     document.getElementById('line-legend').innerHTML = lineEntries.map(([id, info]) =>
       `<span class="legend-item"><i class="legend-swatch" style="background:${info.color}"></i>${escapeHtml(info.name)}</span>`
     ).join('');
   }
-  // Label interchanges (served by 2+ differently coloured lines; the two Blue branches
-  // share a colour, so their common trunk doesn't count) and line ends (one neighbour).
-  // Measure label text with the same font the CSS uses (bold weight, to cover the
-  // heavier interchange labels), so collision boxes match what's drawn.
+  // Keep these in sync with .station-label and .endpoint-tooltip in techno.css.
+  const LABEL_FONT = '11px Tahoma, Verdana, "Segoe UI", sans-serif';
+  const INTERCHANGE_LABEL_FONT = 'bold 11px Tahoma, Verdana, "Segoe UI", sans-serif';
+  const TOOLTIP_FONT = '12px "Pixelify Sans", Tahoma, Verdana, sans-serif';
+  // Fonts above match --map-label and .endpoint-tooltip in techno.css.
   const labelCanvas = document.createElement('canvas').getContext('2d');
-  function measureLabel(text) {
-    labelCanvas.font = '800 9.5px Helvetica, Arial, sans-serif';
+  function measureText(text, font) {
+    labelCanvas.font = font;
     return labelCanvas.measureText(text).width;
   }
   function buildStationLabels(data) {
@@ -457,32 +251,29 @@
       if (!isInterchange && neighbours.get(id)?.size !== 1) return;
       if (!Number.isFinite(Number(station.lat)) || !Number.isFinite(Number(station.lon))) return;
       const marker = L.marker([station.lat, station.lon], {
-        // Start hidden; declutterLabels decides which ones to show.
         icon: L.divIcon({ className: `station-label is-hidden${isInterchange ? ' is-interchange' : ''}`, html: `<span>${escapeHtml(station.name)}</span>`, iconSize: null }),
         interactive: false, keyboard: false
       }).addTo(labelLayer);
-      // Rank: bigger interchanges first, then line ends.
-      marker.labelInfo = { id, width: measureLabel(station.name) + 4, rank: isInterchange ? lineCount : 1 };
+      const width = measureText(station.name, isInterchange ? INTERCHANGE_LABEL_FONT : LABEL_FONT) + 4;
+      marker.labelInfo = { id, width, rank: isInterchange ? lineCount : 1 };
       labelMarkers.push(marker);
     });
     metroMap.on('zoomend moveend resize', declutterLabels);
   }
 
-  // Greedy collision pass: place labels in priority order and hide any that would
-  // overlap one already placed, so the map stays readable at every zoom level.
   function declutterLabels() {
     if (!metroMap || !labelMarkers.length) return;
-    try { metroMap.getCenter(); } catch (_) { return; } // map has no view yet
+    try { metroMap.getCenter(); } catch (_) { return; }
     const size = metroMap.getSize();
     const placed = [];
     const overlaps = box => placed.some(o => box.x1 < o.x2 && box.x2 > o.x1 && box.y1 < o.y2 && box.y2 > o.y1);
-    // Reserve space for the permanent START / DESTINATION / VIA tooltips.
     pinnedLabelIds.forEach(id => {
       const st = stationById.get(id);
       if (!st) return;
       const p = metroMap.latLngToContainerPoint([st.lat, st.lon]);
-      const w = (st.name.length + 14) * 6.2;
-      placed.push({ x1: p.x - w - 14, y1: p.y - 30, x2: p.x + w + 14, y2: p.y + 12 });
+      // Widest tooltip text plus padding and border; it can sit left, right or above the dot.
+      const w = measureText(`DESTINATION · ${st.name} · interchange`, TOOLTIP_FONT) + 18;
+      placed.push({ x1: p.x - w - 14, y1: p.y - 38, x2: p.x + w + 14, y2: p.y + 14 });
     });
     const priority = m => (routeStationIds.has(m.labelInfo.id) ? 100 : 0) + m.labelInfo.rank;
     [...labelMarkers].sort((a, b) => priority(b) - priority(a)).forEach(marker => {
@@ -499,11 +290,10 @@
     });
   }
 
-  // Grey out the network, basemap and labels that aren't part of the current route.
   function focusRoute(data) {
     routeStationIds = new Set(data.stations.map(s => String(s.id)));
     pinnedLabelIds = new Set([String(data.stations[0].id), String(data.stations[data.stations.length - 1].id), ...(data.via || []).map(String)]);
-    edgeLayers.forEach(({ layer }) => layer.setStyle({ color: '#9ca3af', opacity: .35 }));
+    edgeLayers.forEach(({ layer }) => layer.setStyle({ color: '#a39c86', opacity: .35 }));
     stationDots.forEach((dot, id) => {
       const onRoute = routeStationIds.has(id);
       dot.setStyle({ opacity: onRoute ? 1 : .3, fillOpacity: onRoute ? .9 : .25 });
@@ -522,15 +312,22 @@
       stationOptions = '<option value="">Choose a station…</option>' + stations.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
       for (const select of [sourceSelect, destinationSelect]) select.innerHTML = stationOptions;
       addStopButton.disabled = false;
-      await loadNetwork();
-      document.getElementById('api-status').textContent = `${stations.length} stations · network loaded`;
-      logEvent('page_loaded', { stations: stations.length, load_ms: Math.round(performance.now() - started) });
-      // Useful defaults, without forcing a route before the user asks for one.
       if (stations.length > 1) { sourceSelect.value = stations[0].id; destinationSelect.value = stations[1].id; }
     } catch (error) {
       document.getElementById('api-status').textContent = 'Route engine unavailable';
       message.textContent = error.message + ' Make sure the Flask server is running.';
       logEvent('page_load_failed', { error: String(error.message).slice(0, 200) });
+      return;
+    }
+    // Routes can still be planned without the map, so a map failure isn't reported as the server being down.
+    try {
+      await loadNetwork();
+      document.getElementById('api-status').textContent = `${stations.length} stations · network loaded`;
+      logEvent('page_loaded', { stations: stations.length, load_ms: Math.round(performance.now() - started) });
+    } catch (error) {
+      document.getElementById('api-status').textContent = `${stations.length} stations · map unavailable`;
+      message.textContent = `${error.message} You can still plan routes; the map won't be shown.`;
+      logEvent('network_load_failed', { error: String(error.message).slice(0, 200) });
     }
   }
   function formatDuration(seconds) {
@@ -551,12 +348,13 @@
       const pair = [[a.lat, a.lon], [b.lat, b.lon]];
       coords.push(...pair);
       const color = segment.color || colorForLine(segment.line);
-      L.polyline(pair, { color: '#fffaf0', weight: 9, opacity: .95, lineCap: 'round' }).addTo(routeLayer);
+      L.polyline(pair, { color: '#fbf8ef', weight: 9, opacity: .95, lineCap: 'round' }).addTo(routeLayer);
       L.polyline(pair, { color, weight: 5.5, opacity: 1, lineCap: 'round', dashArray: segment.walk ? '2 8' : null })
         .bindTooltip(`${escapeHtml(lineName(segment.line))}: ${escapeHtml(a.name)} → ${escapeHtml(b.name)}`)
         .addTo(routeLayer);
     });
     const viaIds = new Set((data.via || []).map(String));
+    let endpointTagWidth = 0;
     data.stations.forEach((station, i) => {
       const point = stationById.get(String(station.id));
       if (!point) return;
@@ -569,44 +367,45 @@
       const interchange = (data.interchange_stations || []).some(s => String(s.id) === String(station.id));
       const tooltip = `${isStart ? 'START · ' : isDestination ? 'DESTINATION · ' : ''}${escapeHtml(station.name)}${interchange ? ' · interchange' : ''}`;
       if (isVia) {
-        // Via stops get a gold square-ish marker and a permanent label above them.
         L.circleMarker([point.lat, point.lon], {
-          radius: 10, color: '#fffaf0', weight: 3, fillColor: '#fffaf0', fillOpacity: 1
+          radius: 10, color: '#fbf8ef', weight: 3, fillColor: '#fbf8ef', fillOpacity: 1
         }).addTo(routeLayer);
         L.circleMarker([point.lat, point.lon], {
-          radius: 6.5, color: '#202b45', weight: 2.5, fillColor: '#d8b765', fillOpacity: 1
+          radius: 6.5, color: '#4a4639', weight: 2.5, fillColor: '#e9c46a', fillOpacity: 1
         }).bindTooltip(`VIA · ${tooltip}`, { permanent: true, direction: 'top', offset: [0, -8], className: 'endpoint-tooltip' }).addTo(routeLayer);
       } else if (isEndpoint) {
-        // A white halo plus a larger, dark-outlined coloured marker makes both
-        // ends of the journey visible even when they are not interchanges.
+        // Tag text plus the dot, offset, padding and border.
+        const tagText = `${isStart ? 'START · ' : 'DESTINATION · '}${station.name}${interchange ? ' · interchange' : ''}`;
+        endpointTagWidth = Math.max(endpointTagWidth, measureText(tagText, TOOLTIP_FONT) + 34);
         L.circleMarker([point.lat, point.lon], {
-          radius: 12, color: '#fffaf0', weight: 3, fillColor: '#fffaf0', fillOpacity: 1
+          radius: 12, color: '#fbf8ef', weight: 3, fillColor: '#fbf8ef', fillOpacity: 1
         }).addTo(routeLayer);
         L.circleMarker([point.lat, point.lon], {
-          radius: 8, color: '#202b45', weight: 2.5,
-          fillColor: isStart ? '#20a464' : '#e05252', fillOpacity: 1
+          radius: 8, color: '#4a4639', weight: 2.5,
+          fillColor: isStart ? '#5e8f5a' : '#c5574a', fillOpacity: 1
         }).bindTooltip(tooltip, { permanent: true, direction: isStart ? 'left' : 'right', offset: [10, 0], className: 'endpoint-tooltip' }).addTo(routeLayer);
       } else {
         L.circleMarker([point.lat, point.lon], {
           radius: interchange ? 7 : 4.5,
-          color: interchange ? '#202b45' : '#fffaf0', weight: interchange ? 3 : 1.5,
+          color: interchange ? '#4a4639' : '#fbf8ef', weight: interchange ? 3 : 1.5,
           fillColor: color, fillOpacity: 1
         }).bindTooltip(tooltip).addTo(routeLayer);
       }
     });
     if (coords.length) {
       const routeBounds = L.latLngBounds(coords);
-      // Wait for the map container to settle before fitting; this is more reliable
-      // when the map is inside a responsive panel. Zoom to the selected route, not
-      // the entire Delhi network.
       requestAnimationFrame(() => {
         metroMap.invalidateSize();
-        metroMap.fitBounds(routeBounds, { padding: [48, 48], maxZoom: 14, animate: true, duration: 0.6 });
+        // Side padding leaves room for the START / DESTINATION tags, which sit beside their dots;
+        // on a narrow (phone) map the route itself matters more, so the padding is capped harder.
+        const mapWidth = metroMap.getSize().x;
+        const padX = Math.max(48, Math.min(endpointTagWidth, mapWidth * (mapWidth < 500 ? 0.15 : 0.4)));
+        metroMap.fitBounds(routeBounds, { padding: [padX, 48], maxZoom: 14, animate: true, duration: 0.6 });
       });
     }
     const viaNames = (data.via || []).map(id => stationById.get(String(id))?.name || id);
     document.getElementById('map-title').textContent = [data.stations[0].name, ...viaNames, data.stations[data.stations.length-1].name].join(' → ');
-    document.getElementById('map-badge').textContent = `${data.stations.length} STATIONS · NETWORK MAP`;
+    document.getElementById('map-badge').textContent = `${data.stations.length} stations on this route`;
   }
   function renderRoute(data) {
     document.getElementById('total-time').textContent = formatDuration(data.total_time);
@@ -623,7 +422,6 @@
       const isVia = i > 0 && i < data.stations.length - 1 && viaIds.has(String(station.id));
       const segment = outgoing || incoming;
       const color = segment?.color || colorForLine(segment?.line);
-      // Walking transfers read "Walk to X (5 min)" rather than "Continue on Walkway".
       const action = outgoing?.walk
         ? `Walk to ${escapeHtml(data.stations[i + 1].name)} (${formatDuration(outgoing.travel_time)})`
         : `Continue on ${escapeHtml(lineName(outgoing?.line))}`;
@@ -632,7 +430,7 @@
         : isVia ? `Via stop · ${action}` : action;
       const railStyle = outgoing?.walk ? `background:repeating-linear-gradient(to bottom, ${color} 0 4px, transparent 4px 8px)` : `background:${color}`;
       const viaChip = isVia ? '<span class="via-chip">Via</span>' : '';
-      const interchangeChip = interchange ? `<span class="line-chip" style="background:${colorForLine(interchange.from_line)}">${escapeHtml(lineName(interchange.from_line))}</span><span class="line-chip" style="background:${colorForLine(interchange.to_line)}">${escapeHtml(lineName(interchange.to_line))}</span>` : '';
+      const interchangeChip = interchange ? lineChip(interchange.from_line) + lineChip(interchange.to_line) : '';
       return `<li class="stop" style="--stop-index:${i}"><div class="stop-rail"><span class="stop-dot ${interchange?'interchange':''} ${isVia?'via':''}" style="--stop-color:${color};background:${color};border-color:${color}"></span><span class="stop-line" style="${railStyle}"></span></div><div><div class="stop-name">${escapeHtml(station.name)}${viaChip}${interchangeChip}</div><div class="stop-meta">${meta}</div></div></li>`;
     }).join('');
     drawRoute(data);
@@ -645,7 +443,6 @@
       const sourceName = source?.name || sourceSelect.selectedOptions[0]?.textContent || 'your starting station';
       const destinationName = destination?.name || destinationSelect.selectedOptions[0]?.textContent || 'your destination';
       if (viaNames.length) {
-        // "Z", "Z and W", "Z, W and V"
         const through = viaNames.length === 1 ? viaNames[0] : `${viaNames.slice(0, -1).join(', ')} and ${viaNames[viaNames.length - 1]}`;
         return `There is no available route from ${sourceName} to ${destinationName} through ${through}. Try a different stop, or remove it.`;
       }
@@ -686,7 +483,7 @@
     const stops = [sourceSelect.value, ...via, destinationSelect.value];
     if (!via.length && sourceSelect.value === destinationSelect.value) { rejectInput('same_station', 'Choose two different stations for your journey.'); return; }
     if (stops.some((stop, i) => i > 0 && stop === stops[i - 1])) { rejectInput('repeated_stop', 'Each stop must be different from the one before it.'); return; }
-    const button=document.getElementById('find-route'); button.disabled=true; button.textContent='Finding…';
+    const button=document.getElementById('find-route'); button.disabled=true; button.textContent='Finding route…';
     const journey = { source: sourceSelect.value, dest: destinationSelect.value, via: via.join(','), mode: selectedMode };
     logEvent('route_requested', journey);
     const started = performance.now();
@@ -702,17 +499,19 @@
       message.textContent = friendlyRouteError(error.message, viaNames);
       logEvent('route_failed', { ...journey, status: error.status ?? null, error: error.code || String(error.message).slice(0, 200) });
     }
-    finally { button.disabled=false; button.textContent='Find my route ↗'; }
+    finally { button.disabled=false; button.textContent='Find route'; }
   }
   document.querySelectorAll('.mode').forEach(button => button.addEventListener('click', () => {
     selectedMode=button.dataset.mode;
-    document.querySelectorAll('.mode').forEach(b=>b.classList.toggle('active',b===button));
+    document.querySelectorAll('.mode').forEach(b => {
+      b.classList.toggle('active', b === button);
+      b.setAttribute('aria-pressed', String(b === button));
+    });
     logEvent('mode_changed', { mode: selectedMode });
   }));
   document.getElementById('find-route').addEventListener('click',findRoute);
   document.getElementById('swap').addEventListener('click',()=>{
     const old=sourceSelect.value; sourceSelect.value=destinationSelect.value; destinationSelect.value=old;
-    // Reversing the journey reverses the order of the via stops too.
     const selects = viaSelects(), values = selects.map(s => s.value).reverse();
     selects.forEach((select, i) => { select.value = values[i]; });
     logEvent('stations_swapped', { via_count: selects.length });

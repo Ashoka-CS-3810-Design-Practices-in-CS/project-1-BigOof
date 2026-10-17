@@ -234,19 +234,26 @@ def test_route_greys_out_the_rest_of_the_map(app_page: Page):
 
 def test_theme_toggle_switches_palette_and_persists(app_page: Page):
     body = app_page.locator("body")
-    expect(body).to_have_attribute("data-theme", "dark")
+    face = "getComputedStyle(document.body).getPropertyValue('--face').trim()"
 
-    app_page.click("#theme-toggle")
-
+    # Light mode is the default: cream windows on the teal desktop.
     expect(body).to_have_attribute("data-theme", "light")
     expect(app_page.locator("#theme-label")).to_have_text("Dark mode")
-    expect(app_page.locator("#theme-toggle")).to_have_attribute("aria-pressed", "true")
-    # Light mode swaps the pale gold for an accessible deep amber.
-    gold = app_page.evaluate("getComputedStyle(document.body).getPropertyValue('--gold').trim()")
-    assert gold == "#8a6510"
+    assert app_page.evaluate(face) == "#e4dec9"
 
+    app_page.click("#theme-toggle")
+    expect(body).to_have_attribute("data-theme", "dark")
+    expect(app_page.locator("#theme-toggle")).to_have_attribute("aria-label", "Switch to light mode")
+
+    app_page.click("#theme-toggle")
+    expect(body).to_have_attribute("data-theme", "light")
+    expect(app_page.locator("#theme-toggle")).to_have_attribute("aria-label", "Switch to dark mode")
+    assert app_page.evaluate(face) == "#e4dec9"
+
+    # The choice of light mode is saved across reloads.
     app_page.reload()
     expect(body).to_have_attribute("data-theme", "light")
+    assert app_page.evaluate(face) == "#e4dec9"
 
 
 def test_kinetic_title_animates_letters(browser, live_server):
@@ -301,7 +308,7 @@ def test_interactions_are_logged(page: Page, live_server, station_id, caplog):
     assert found["details"]["source"] == station_id("Central Secretariat")
     assert found["details"]["mode"] == "fewest_interchanges"
     assert found["details"]["interchanges"] == 0
-    assert next(e for e in events if e["event"] == "theme_changed")["details"] == {"theme": "light"}
+    assert next(e for e in events if e["event"] == "theme_changed")["details"] == {"theme": "dark"}
     assert next(e for e in events if e["event"] == "validation_failed")["details"] == {"reason": "same_station"}
 
 
