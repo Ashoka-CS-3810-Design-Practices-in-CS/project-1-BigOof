@@ -46,6 +46,16 @@ jobs:
         with:
           node-version: "22"  # the Vercel CLI needs Node 20+
 
+      # `vercel build` runs Vercel's Python builder here on the runner; with a
+      # uv.lock it installs dependencies using uv, so uv must be on PATH.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
