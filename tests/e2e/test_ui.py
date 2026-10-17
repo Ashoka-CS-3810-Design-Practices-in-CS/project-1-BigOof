@@ -1,7 +1,9 @@
 """End-to-end tests of the planner page's JavaScript."""
 
 import json
+import logging
 import re
+import time
 
 from playwright.sync_api import Page, expect
 
@@ -256,3 +258,80 @@ def test_kinetic_title_animates_letters(browser, live_server):
     expect(page.locator(".kinetic-char")).to_have_count(len("METERONORMATIVE"))
     expect(page.locator(".kinetic-title")).to_have_class(re.compile(r"\bis-visible\b"))
     context.close()
+
+
+# --- Interaction logging ------------------------------------------------------
+# These read the live server's own log records (it runs in this process), so they
+# check the whole path: browser -> /log -> server log.
+
+def logged_ui_events(caplog, minimum: int = 1, timeout: float = 5.0) -> list[dict]:
+    """Parsed 'UI <event> <json details>' server log lines, once at least `minimum` arrived."""
+    deadline = time.monotonic() + timeout
+    while True:
+        events = []
+        for record in caplog.records:
+            match = re.match(r"UI (\w+) (\{.*\}) \[req ", record.getMessage())
+            if record.name == "big_o" and match:
+                events.append({"event": match[1], "details": json.loads(match[2])})
+        if len(events) >= minimum or time.monotonic() > deadline:
+            return events
+        time.sleep(0.05)  # beacons are fire-and-forget
+
+
+def test_interactions_are_logged(page: Page, live_server, station_id, caplog):
+    caplog.set_level(logging.INFO, logger="big_o")
+    page.goto(live_server)
+    expect(page.locator("#api-status")).to_have_text(re.compile(r"network loaded$"))
+
+    page.locator(".mode[data-mode=fewest_interchanges]").click()
+    page.click("#add-stop")
+    page.locator(".via-remove").click()
+    page.click("#swap")
+    page.click("#theme-toggle")
+    find_route(page, "Central Secretariat", "Mandi House")
+    expect(page.locator("#total-time")).not_to_have_text("—")
+    find_route(page, "Rajiv Chowk", "Rajiv Chowk")
+
+    events = logged_ui_events(caplog, minimum=10)
+    names = [event["event"] for event in events]
+    for name in ("page_loaded", "mode_changed", "stop_added", "stop_removed", "stations_swapped",
+                 "theme_changed", "route_requested", "route_found", "validation_failed"):
+        assert name in names
+    found = next(event for event in events if event["event"] == "route_found")
+    assert found["details"]["source"] == station_id("Central Secretariat")
+    assert found["details"]["mode"] == "fewest_interchanges"
+    assert found["details"]["interchanges"] == 0
+    assert next(e for e in events if e["event"] == "theme_changed")["details"] == {"theme": "light"}
+    assert next(e for e in events if e["event"] == "validation_failed")["details"] == {"reason": "same_station"}
+
+
+def test_failed_route_is_logged(app_page: Page, caplog):
+    caplog.set_level(logging.INFO, logger="big_o")
+    app_page.route(
+        "**/route",
+        lambda route: route.fulfill(status=404, content_type="application/json",
+                                    body=json.dumps({"error": "route_not_found", "message": "No route from 'x' to 'y'"})),
+    )
+    find_route(app_page, "Central Secretariat", "Mandi House")
+
+    events = logged_ui_events(caplog, minimum=2)
+    failed = next(event for event in events if event["event"] == "route_failed")
+    assert failed["details"]["status"] == 404
+    assert failed["details"]["error"] == "route_not_found"
+
+
+def test_javascript_errors_are_logged(app_page: Page, caplog):
+    caplog.set_level(logging.INFO, logger="big_o")
+    app_page.evaluate("setTimeout(() => { throw new Error('test explosion'); })")
+
+    events = logged_ui_events(caplog)
+    error = next(event for event in events if event["event"] == "js_error")
+    assert "test explosion" in error["details"]["message"]
+
+
+def test_logging_failure_does_not_break_the_page(app_page: Page):
+    app_page.route("**/log", lambda route: route.abort())
+
+    find_route(app_page, "Central Secretariat", "Mandi House")
+
+    expect(app_page.locator("#total-time")).to_have_text("4 min 42 sec")

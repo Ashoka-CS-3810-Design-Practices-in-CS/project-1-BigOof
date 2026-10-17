@@ -1,16 +1,43 @@
+import json
 import os
+import re
 from pathlib import Path
 import sqlite3
+import time
+import uuid
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, g, jsonify, render_template, request
+from werkzeug.exceptions import HTTPException
 
 from .back import MetroGraph
+from .logging_config import configure_logging
 
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "metro.db"
 MAX_VIA_STOPS = 3
 
+# User-interaction events the page may report to /log; anything else is rejected
+# so the endpoint can't be used to write arbitrary text into the logs.
+UI_EVENTS = frozenset({
+    "page_loaded",
+    "page_load_failed",
+    "route_requested",
+    "route_found",
+    "route_failed",
+    "validation_failed",
+    "mode_changed",
+    "stations_swapped",
+    "stop_added",
+    "stop_removed",
+    "theme_changed",
+    "js_error",
+})
+MAX_UI_DETAIL_FIELDS = 10
+MAX_UI_DETAIL_LENGTH = 200
+REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9-]{1,64}")
+
+logger = configure_logging()
 app = Flask(__name__)
 
 
@@ -181,6 +208,56 @@ def load_app_data(database_path=DATABASE_PATH):
 
 # Load once at startup; route requests use the in-memory graph.
 metro_graph, LINE_METADATA, startup_error = load_app_data()
+if metro_graph is None:
+    logger.error("Startup failed, metro data not loaded: %s", startup_error)
+else:
+    logger.info(
+        "Loaded metro data: %d stations, %d lines from %s",
+        len(metro_graph.stations), len(LINE_METADATA), DATABASE_PATH,
+    )
+
+
+@app.before_request
+def start_request_log():
+    """Tag each request with an ID (returned as X-Request-ID) and start its timer."""
+    # Reuse a caller's request ID only if it's short and plain, since it ends up in logs.
+    incoming = request.headers.get("X-Request-ID", "")
+    g.request_id = incoming if REQUEST_ID_PATTERN.fullmatch(incoming) else uuid.uuid4().hex[:12]
+    g.request_started = time.perf_counter()
+
+
+@app.after_request
+def log_request(response):
+    """One log line per request; error responses also record their error code."""
+    duration_ms = (time.perf_counter() - g.get("request_started", time.perf_counter())) * 1000
+    request_id = g.get("request_id", "-")
+    response.headers["X-Request-ID"] = request_id
+    message = "%s %s -> %d (%.1f ms) [req %s]"
+    args = [request.method, request.path, response.status_code, duration_ms, request_id]
+
+    if response.status_code >= 400 and response.is_json:
+        error = (response.get_json(silent=True) or {}).get("error")
+        if error:
+            message += " error=%s"
+            args.append(error)
+    if response.status_code >= 500:
+        logger.error(message, *args)
+    elif response.status_code >= 400:
+        logger.warning(message, *args)
+    elif request.path.startswith("/static/"):
+        logger.debug(message, *args)
+    else:
+        logger.info(message, *args)
+    return response
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    """Log unhandled errors with a traceback; let normal HTTP errors (404 etc.) through."""
+    if isinstance(exc, HTTPException):
+        return exc
+    logger.exception("Unhandled error on %s %s [req %s]", request.method, request.path, g.get("request_id", "-"))
+    return jsonify({"error": "internal_error", "message": "Something went wrong."}), 500
 
 
 @app.get("/network")
@@ -333,6 +410,11 @@ def get_route():
             "message": str(exc),
         }), 404
 
+    logger.info(
+        "Route %s mode=%s via=%s: %d stations, %ss, %d interchanges [req %s]",
+        " -> ".join(stops), mode, len(via), len(result.stations),
+        result.total_time, result.interchanges, g.get("request_id", "-"),
+    )
     response = route_to_dict(result)
     response["mode"] = mode
     response["source"] = source
@@ -340,3 +422,27 @@ def get_route():
     response["via"] = via
     return jsonify(response), 200
 
+
+@app.post("/log")
+def log_ui_event():
+    """Record a user-interaction event sent by the page (see UI_EVENTS)."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or payload.get("event") not in UI_EVENTS:
+        return jsonify({"error": "invalid_event", "message": "Unknown or missing event."}), 400
+
+    details = payload.get("details", {})
+    if (
+        not isinstance(details, dict)
+        or len(details) > MAX_UI_DETAIL_FIELDS
+        or not all(
+            isinstance(key, str) and len(key) <= 40
+            and (value is None or isinstance(value, (bool, int, float))
+                 or (isinstance(value, str) and len(value) <= MAX_UI_DETAIL_LENGTH))
+            for key, value in details.items()
+        )
+    ):
+        return jsonify({"error": "invalid_details", "message": "details must be a small flat object."}), 400
+
+    # json.dumps keeps user-supplied text on one escaped line, so it can't fake log entries.
+    logger.info("UI %s %s [req %s]", payload["event"], json.dumps(details, sort_keys=True), g.get("request_id", "-"))
+    return "", 204

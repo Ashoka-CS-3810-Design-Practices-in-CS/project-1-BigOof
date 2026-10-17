@@ -31,6 +31,18 @@ feature branch ──PR──▶ dev ──PR──▶ main ──▶ tests ─�
      Protection is on (Vercel → Project Settings → Deployment Protection → Protection Bypass for Automation)
 5. Optionally add a branch protection rule on `main` requiring the **Tests** check to pass on PRs.
 
+### Logging
+
+- **Server**: every request is logged (method, path, status, duration, request ID); error
+  responses include their error code, route searches log their result, and unexpected errors
+  log a traceback. Each response carries an `X-Request-ID` header to match it to its log lines.
+- **User interactions**: the page reports events (page loaded, route requested/found/failed,
+  mode change, swap, stops added/removed, theme change, input rejected, JavaScript errors) to
+  `POST /log`, which accepts only known event names with small flat details.
+- **Where**: stdout always (Vercel → project → **Logs**). Locally also `.logs/big_o.log`
+  (rotating, git-ignored); there's no log file on Vercel, whose filesystem is read-only.
+- **Settings**: `LOG_LEVEL` (default `INFO`), `LOG_DIR` (default `.logs`; empty turns file logging off).
+
 ### Running the tests
 
 ```
