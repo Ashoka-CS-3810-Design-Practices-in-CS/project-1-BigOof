@@ -327,7 +327,29 @@
   let initialTheme = 'dark';
   try { if (localStorage.getItem('metro-theme') === 'light') initialTheme = 'light'; } catch (_) {}
   applyTheme(initialTheme);
-  themeToggle.addEventListener('click', () => applyTheme(document.body.dataset.theme === 'light' ? 'dark' : 'light'));
+  // Report a user interaction to the server log (/log). sendBeacon doesn't block the
+  // page or delay navigation; logging must never break the UI, so failures are ignored.
+  function logEvent(event, details = {}) {
+    const body = JSON.stringify({ event, details });
+    console.debug('[ui]', event, details);
+    try {
+      if (!(navigator.sendBeacon && navigator.sendBeacon('/log', new Blob([body], { type: 'application/json' })))) {
+        fetch('/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+      }
+    } catch (_) { /* never let logging break the page */ }
+  }
+  // Uncaught errors and rejected promises are reported too, so production bugs show up in the logs.
+  window.addEventListener('error', event => logEvent('js_error', {
+    message: String(event.message).slice(0, 200), source: String(event.filename || '').slice(-100), line: event.lineno ?? null,
+  }));
+  window.addEventListener('unhandledrejection', event => logEvent('js_error', {
+    message: String(event.reason?.message || event.reason).slice(0, 200), source: 'promise',
+  }));
+  themeToggle.addEventListener('click', () => {
+    const theme = document.body.dataset.theme === 'light' ? 'dark' : 'light';
+    applyTheme(theme);
+    logEvent('theme_changed', { theme });
+  });
 
   const sourceSelect = document.getElementById('source');
   const destinationSelect = document.getElementById('destination');
@@ -491,6 +513,7 @@
   }
 
   async function loadStations() {
+    const started = performance.now();
     try {
       const response = await fetch('/stations');
       const data = await response.json();
@@ -501,11 +524,13 @@
       addStopButton.disabled = false;
       await loadNetwork();
       document.getElementById('api-status').textContent = `${stations.length} stations · network loaded`;
+      logEvent('page_loaded', { stations: stations.length, load_ms: Math.round(performance.now() - started) });
       // Useful defaults, without forcing a route before the user asks for one.
       if (stations.length > 1) { sourceSelect.value = stations[0].id; destinationSelect.value = stations[1].id; }
     } catch (error) {
       document.getElementById('api-status').textContent = 'Route engine unavailable';
       message.textContent = error.message + ' Make sure the Flask server is running.';
+      logEvent('page_load_failed', { error: String(error.message).slice(0, 200) });
     }
   }
   function formatDuration(seconds) {
@@ -641,34 +666,48 @@
     row.innerHTML = `<label class="field-label" for="${id}"></label><div class="via-controls"><div class="select-wrap"><select id="${id}">${stationOptions}</select></div><button type="button" class="via-remove" aria-label="Remove this stop" title="Remove stop">×</button></div>`;
     const select = row.querySelector('select');
     select.value = value;
-    row.querySelector('.via-remove').addEventListener('click', () => { row.remove(); refreshViaControls(); addStopButton.focus(); });
+    row.querySelector('.via-remove').addEventListener('click', () => {
+      row.remove(); refreshViaControls(); addStopButton.focus();
+      logEvent('stop_removed', { stops: viaSelects().length });
+    });
     viaList.appendChild(row);
     refreshViaControls();
     if (!value) select.focus();
   }
+  function rejectInput(reason, text) {
+    message.textContent = text;
+    logEvent('validation_failed', { reason });
+  }
   async function findRoute() {
     message.textContent = '';
     const via = viaSelects().map(select => select.value);
-    if (!sourceSelect.value || !destinationSelect.value) { message.textContent = 'Choose both a starting station and a destination.'; return; }
-    if (via.some(value => !value)) { message.textContent = 'Choose a station for each via stop, or remove it.'; return; }
+    if (!sourceSelect.value || !destinationSelect.value) { rejectInput('missing_endpoint', 'Choose both a starting station and a destination.'); return; }
+    if (via.some(value => !value)) { rejectInput('blank_stop', 'Choose a station for each via stop, or remove it.'); return; }
     const stops = [sourceSelect.value, ...via, destinationSelect.value];
-    if (!via.length && sourceSelect.value === destinationSelect.value) { message.textContent = 'Choose two different stations for your journey.'; return; }
-    if (stops.some((stop, i) => i > 0 && stop === stops[i - 1])) { message.textContent = 'Each stop must be different from the one before it.'; return; }
+    if (!via.length && sourceSelect.value === destinationSelect.value) { rejectInput('same_station', 'Choose two different stations for your journey.'); return; }
+    if (stops.some((stop, i) => i > 0 && stop === stops[i - 1])) { rejectInput('repeated_stop', 'Each stop must be different from the one before it.'); return; }
     const button=document.getElementById('find-route'); button.disabled=true; button.textContent='Finding…';
+    const journey = { source: sourceSelect.value, dest: destinationSelect.value, via: via.join(','), mode: selectedMode };
+    logEvent('route_requested', journey);
+    const started = performance.now();
     try {
       const response=await fetch('/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:sourceSelect.value,dest:destinationSelect.value,via,mode:selectedMode})});
       const data=await response.json();
-      if (!response.ok) throw new Error(data.message || 'Could not find a route.');
+      if (!response.ok) throw Object.assign(new Error(data.message || 'Could not find a route.'), { code: data.error, status: response.status });
       renderRoute(data);
+      logEvent('route_found', { ...journey, stations: data.stations.length, interchanges: data.interchanges,
+        total_time: data.total_time, response_ms: Math.round(performance.now() - started) });
     } catch(error) {
       const viaNames = via.map(id => stationById.get(String(id))?.name || id);
       message.textContent = friendlyRouteError(error.message, viaNames);
+      logEvent('route_failed', { ...journey, status: error.status ?? null, error: error.code || String(error.message).slice(0, 200) });
     }
     finally { button.disabled=false; button.textContent='Find my route ↗'; }
   }
   document.querySelectorAll('.mode').forEach(button => button.addEventListener('click', () => {
     selectedMode=button.dataset.mode;
     document.querySelectorAll('.mode').forEach(b=>b.classList.toggle('active',b===button));
+    logEvent('mode_changed', { mode: selectedMode });
   }));
   document.getElementById('find-route').addEventListener('click',findRoute);
   document.getElementById('swap').addEventListener('click',()=>{
@@ -676,8 +715,12 @@
     // Reversing the journey reverses the order of the via stops too.
     const selects = viaSelects(), values = selects.map(s => s.value).reverse();
     selects.forEach((select, i) => { select.value = values[i]; });
+    logEvent('stations_swapped', { via_count: selects.length });
   });
-  addStopButton.addEventListener('click', () => addViaStop());
+  addStopButton.addEventListener('click', () => {
+    addViaStop();
+    logEvent('stop_added', { stops: viaSelects().length });
+  });
   loadStations();
 </script>
 </body>
