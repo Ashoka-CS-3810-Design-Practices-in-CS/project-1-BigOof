@@ -103,12 +103,31 @@ jobs:
             exit 1
           fi
           headers=()
-          if [ -n "$BYPASS" ]; then headers=(-H "x-vercel-protection-bypass: $BYPASS"); fi
+          if [ -n "$BYPASS" ]; then
+            headers=(-H "x-vercel-protection-bypass: $BYPASS")
+            echo "Protection bypass secret: provided"
+          else
+            echo "Protection bypass secret: not provided"
+          fi
           fetch() { curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${headers[@]}" "$BASE_URL$1"; }
+
+          # Vercel Deployment Protection answers with a redirect to its login page.
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' "${headers[@]}" "$BASE_URL/health")
+          if [ "$status" = 302 ] || [ "$status" = 401 ] || [ "$status" = 403 ]; then
+            if [ -n "$BYPASS" ]; then
+              echo "::error::$BASE_URL is behind Vercel Deployment Protection (HTTP $status) and the bypass secret was rejected. Check that the VERCEL_AUTOMATION_BYPASS_SECRET Actions secret matches Vercel → Project Settings → Deployment Protection → Protection Bypass for Automation."
+            else
+              echo "::error::$BASE_URL is behind Vercel Deployment Protection (HTTP $status). Add an Actions secret named VERCEL_AUTOMATION_BYPASS_SECRET (Settings → Secrets and variables → Actions → Secrets tab) with the value from Vercel → Project Settings → Deployment Protection → Protection Bypass for Automation."
+            fi
+            exit 1
+          fi
 
           health=$(fetch /health)
           echo "health: $health"
-          [ "$(echo "$health" | jq -r .status)" = ok ]
+          if [ "$(echo "$health" | jq -r .status 2>/dev/null)" != ok ]; then
+            echo "::error::/health did not return status ok"
+            exit 1
+          fi
           commit=$(echo "$health" | jq -r '.commit // empty')
           if [ "$commit" != "$EXPECTED_COMMIT" ]; then
             echo "::error::$BASE_URL is serving commit '${commit:-unknown}', expected $EXPECTED_COMMIT"
