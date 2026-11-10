@@ -24,6 +24,9 @@ body {
   --lcd-bg: #b9c4a0;
   --lcd-text: #2c3824;
   --warn: #e9c46a;
+  /* Height of buttons and selects, and width of the square icon buttons. Touch
+     screens get a 44px target (see the pointer: coarse rule below). */
+  --tap: 30px;
 
   --ui: "Pixelify Sans", Tahoma, Verdana, sans-serif;
   --body: "DotGothic16", Tahoma, Verdana, sans-serif;
@@ -78,7 +81,7 @@ body[data-theme="dark"] {
 .tagline { margin: 10px 0 0; font-size: 17px; }
 
 /* Controls */
-button { font: 14px var(--ui); color: var(--text); background: var(--face); border: 0; border-radius: 0; box-shadow: var(--raised); padding: 6px 14px; min-height: 30px; cursor: pointer; }
+button { font: 14px var(--ui); color: var(--text); background: var(--face); border: 0; border-radius: 0; box-shadow: var(--raised); padding: 6px 14px; min-height: var(--tap); cursor: pointer; touch-action: manipulation; }
 button:active:not(:disabled) { box-shadow: var(--pressed); }
 button:focus-visible { outline: 1px dotted var(--text); outline-offset: -5px; }
 button:disabled { color: var(--shadow); text-shadow: 1px 1px var(--emboss); cursor: default; }
@@ -88,29 +91,32 @@ button:disabled { color: var(--shadow); text-shadow: 1px 1px var(--emboss); curs
 .window { background: var(--face); box-shadow: var(--window); padding: 3px; min-width: 0; }
 .title-bar { display: flex; align-items: center; min-height: 24px; padding: 3px 6px; background: linear-gradient(90deg, var(--title-a), var(--title-b)); color: var(--title-text); }
 .title-bar h2 { margin: 0; font: 700 14px/18px var(--ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title-reset {margin-left: auto; min-height: 24px; padding: 2px 8px; font-size: 12px;white-space: nowrap;}
 .window-body { padding: 12px 10px 10px; }
 .status-bar { display: flex; gap: 2px; margin-top: 2px; font-size: 13px; }
 .status-bar > span { padding: 2px 6px; box-shadow: inset -1px -1px var(--hilite), inset 1px 1px var(--shadow); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status-bar > span:first-child { flex: 1; }
 
 /* Planner */
-.planner { display: grid; grid-template-columns: minmax(0,1fr) 30px minmax(0,1fr); gap: 8px 10px; align-items: end; }
+.planner { display: grid; grid-template-columns: minmax(0,1fr) var(--tap) minmax(0,1fr); gap: 8px 10px; align-items: end; }
 .field-label { display: block; margin: 0 0 4px; font-size: 14px; }
-select { width: 100%; height: 32px; appearance: none; font: 15px var(--body); color: var(--text); background: var(--field); border: 0; border-radius: 0; box-shadow: var(--sunken); padding: 4px 26px 4px 6px; }
+select { width: 100%; height: calc(var(--tap) + 2px); appearance: none; font: 15px var(--body); color: var(--text); background: var(--field); border: 0; border-radius: 0; box-shadow: var(--sunken); padding: 4px 26px 4px 6px; }
 select:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
 .select-wrap { position: relative; }
 .select-wrap::before { content: ''; position: absolute; top: 2px; right: 2px; bottom: 2px; width: 18px; background: var(--face); box-shadow: var(--raised); pointer-events: none; }
 .select-wrap::after { content: ''; position: absolute; top: 50%; right: 7px; margin-top: -2px; border: 4px solid transparent; border-bottom: 0; border-top-color: var(--text); pointer-events: none; }
-.swap { width: 30px; padding: 0; font-size: 16px; }
+.swap { width: var(--tap); padding: 0; font-size: 16px; }
 .via-list { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; }
 .via-list:empty { display: none; }
-.via-controls { display: grid; grid-template-columns: minmax(0,1fr) 30px; gap: 10px; align-items: center; }
-.via-remove { width: 30px; padding: 0; font-size: 16px; }
+.via-controls { display: grid; grid-template-columns: minmax(0,1fr) var(--tap); gap: 10px; align-items: center; }
+.via-remove { width: var(--tap); padding: 0; font-size: 16px; }
 .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .add-stop { margin-right: auto; }
 .mode-group { display: flex; gap: 2px; }
 .mode.active { box-shadow: var(--pressed); background: var(--toggled); }
 .go { font-weight: 700; box-shadow: 0 0 0 1px var(--dark), var(--raised); margin-left: 4px; }
+.reset-planner {margin-left: 4px;font-size: 13px;
+}
 .message { position: relative; margin: 12px 0 0; padding: 6px 8px 6px 32px; background: var(--field); box-shadow: var(--sunken); }
 .message::before { content: '!'; position: absolute; left: 8px; top: 50%; width: 16px; height: 14px; margin-top: -7px; background: var(--warn); color: #2e2b24; clip-path: polygon(50% 0, 100% 100%, 0 100%); font: 700 10px/17px var(--body); text-align: center; }
 .message:empty { display: none; }
@@ -143,6 +149,7 @@ select:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
 /* Map */
 .map-frame { padding: 2px; background: var(--field); box-shadow: var(--sunken); }
 #route-map { width: 100%; height: 460px; z-index: 1; background: #e3dfd2; font: 12px var(--body); }
+.map-hint { display: none; margin: 6px 0 0; font-size: 13px; color: var(--muted); }
 .line-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .legend-swatch { width: 10px; height: 10px; box-shadow: 0 0 0 1px var(--text); }
@@ -155,6 +162,8 @@ select:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
 #route-map .leaflet-tooltip { background: #fbf3d0; color: #2e2b24; border: 1px solid #4a4639; border-radius: 0; box-shadow: none; font: 13px var(--body); padding: 2px 6px; }
 #route-map .leaflet-tooltip::before { display: none; }
 #route-map .endpoint-tooltip { background: #4e6f94; color: #fbf8ee; border: 1px solid #fbf8ee; outline: 1px solid #4a4639; font: 12px var(--ui); }
+/* On a narrow map the tags sit above their dots and wrap, so long names stay on the map. */
+#route-map .endpoint-tooltip.is-compact { white-space: normal; width: max-content; max-width: min(170px, 55vw); line-height: 1.3; text-align: center; }
 .station-label { pointer-events: none; }
 .station-label span { position: absolute; left: 6px; top: -7px; white-space: nowrap; font: 11px/14px var(--map-label); color: #2e2b24; text-shadow: 0 0 2px #fbf8ef, 0 0 2px #fbf8ef, 0 0 3px #fbf8ef, 0 0 4px #fbf8ef; }
 .station-label.is-interchange span { font-weight: 700; }
@@ -171,16 +180,34 @@ select:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
 #route-list::-webkit-scrollbar-track { background: var(--toggled); }
 #route-list::-webkit-scrollbar-thumb { background: var(--face); box-shadow: var(--raised); }
 
+/* Desktop: keep the map in view while scrolling a long list of stops. Only on screens
+   tall enough to show the whole map window, or its legend would be out of reach. */
+@media (min-width: 901px) and (min-height: 760px) {
+  .layout > .window:last-child { position: sticky; top: 16px; }
+}
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
-  #route-map { height: 360px; }
+  /* Leave some page showing above and below the map on short (landscape) phones. */
+  #route-map { height: clamp(260px, 60vh, 360px); }
+}
+/* Touch screens: 44px targets, and 16px text in selects so iOS Safari doesn't zoom
+   the page when one is focused. */
+@media (pointer: coarse) {
+  body { --tap: 44px; }
+  select { font-size: 16px; }
+  .map-hint { display: block; }
+  #route-map .leaflet-bar a { width: 36px; height: 36px; line-height: 36px; }
 }
 @media (max-width: 480px) {
-  .planner { grid-template-columns: minmax(0,1fr) 30px; }
+  .planner { grid-template-columns: minmax(0,1fr) var(--tap); }
   .planner > div:nth-of-type(2) { grid-column: 1; }
   .route-summary { grid-template-columns: 1fr; }
-  .actions { justify-content: flex-end; }
-  .add-stop { margin-right: 0; }
+  /* Route preference across the top, then Add stop and Find route side by side. */
+  .actions { display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "mode mode" "add go"; gap: 8px; }
+  .mode-group { grid-area: mode; }
+  .mode { flex: 1; padding: 6px 8px; }
+  .add-stop { grid-area: add; margin-right: 0; }
+  .go { grid-area: go; margin-left: 0; }
   .status-bar { flex-wrap: wrap; }
   .status-bar > span, .status-bar > span:first-child { flex: 1 0 auto; }
 }

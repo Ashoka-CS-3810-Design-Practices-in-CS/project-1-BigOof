@@ -72,8 +72,12 @@ def database(tmp_path):
 
 @pytest.fixture
 def integration_client(database, monkeypatch):
-    """Load the graph from SQLite and exercise the real Flask endpoints."""
-    graph = load_metro_graph(database)
+    """Load the graph from SQLite and exercise the real Flask endpoints.
+
+    Line changes are free here, so fastest and fewest-interchange routes differ on this
+    tiny network (its hops take seconds, far less than the real interchange allowance).
+    """
+    graph = load_metro_graph(database, interchange_penalty=0)
 
     monkeypatch.setattr(app_module, "DATABASE_PATH", database)
     monkeypatch.setattr(app_module, "metro_graph", graph)

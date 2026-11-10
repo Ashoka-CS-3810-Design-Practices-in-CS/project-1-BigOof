@@ -278,3 +278,78 @@ def test_route_via_skips_outdated_queue_entries(stale_queue_graph):
 
     assert result.stations == ("A", "C", "B", "D")
     assert result.total_time == 12
+
+
+def penalised(penalty):
+    """The fixture network again, but each line change costs ``penalty``."""
+    graph = MetroGraph(interchange_penalty=penalty)
+    for code in ("A", "B", "C", "D"):
+        graph.add_station(code, f"Station {code}")
+    graph.add_connection("A", "B", 2, "red")
+    graph.add_connection("B", "D", 2, "blue")
+    graph.add_connection("A", "C", 3, "green")
+    graph.add_connection("C", "D", 3, "green")
+    return graph
+
+
+def test_interchange_penalty_defaults_to_free_changes(graph):
+    result = graph.fastestRoute("A", "D")
+
+    assert graph.interchange_penalty == 0
+    assert result.interchange_time == 0
+
+
+def test_small_interchange_penalty_keeps_the_faster_change():
+    # 2 + 2 + 1 (one change) still beats 3 + 3.
+    result = penalised(1).fastestRoute("A", "D")
+
+    assert result.stations == ("A", "B", "D")
+    assert result.interchanges == 1
+    assert result.interchange_time == 1
+    assert result.total_time == 5
+
+
+def test_interchange_penalty_makes_direct_train_fastest():
+    # 2 + 2 + 5 (one change) loses to 3 + 3 on one line.
+    result = penalised(5).fastestRoute("A", "D")
+
+    assert result.stations == ("A", "C", "D")
+    assert result.interchanges == 0
+    assert result.total_time == 6
+
+
+@pytest.mark.parametrize("route", ["fastestRoute", "fewestInterchangesRoute"])
+def test_interchange_time_is_included_in_total(walk_graph, route):
+    walk_graph.interchange_penalty = 10
+
+    result = getattr(walk_graph, route)("A", "D")
+
+    assert result.interchanges == 1
+    assert result.interchange_time == 10
+    assert result.total_time == 2 + 5 + 2 + 10
+
+
+def test_route_via_applies_interchange_penalty():
+    graph = penalised(5)
+    graph.add_station("E", "Station E")
+    graph.add_connection("D", "E", 1, "blue")
+
+    result = graph.routeVia(["A", "D", "E"])
+
+    # On its own, A -> D is fastest on green (6 vs 2 + 2 + 5), but E is on blue, so
+    # the whole journey is cheaper changing once at B (2 + 2 + 5 + 1) than at D (6 + 5 + 1).
+    assert result.stations == ("A", "B", "D", "E")
+    assert result.interchanges == 1
+    assert result.total_time == 10
+
+
+def test_interchange_penalty_same_station_is_empty_route():
+    result = penalised(5).fastestRoute("A", "A")
+
+    assert result.stations == ("A",)
+    assert result.total_time == 0
+
+
+def test_negative_interchange_penalty_rejected():
+    with pytest.raises(ValueError, match="non-negative"):
+        MetroGraph(interchange_penalty=-1)

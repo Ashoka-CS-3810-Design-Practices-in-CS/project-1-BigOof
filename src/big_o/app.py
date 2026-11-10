@@ -16,12 +16,16 @@ from .logging_config import configure_logging
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "metro.db"
 MAX_VIA_STOPS = 3
+# Seconds allowed for each change of line: walking between platforms and waiting for
+# the next train. Five minutes is the allowance DMRC's own journey planner typically adds.
+INTERCHANGE_PENALTY = 300
 
 # User-interaction events the page may report to /log; anything else is rejected
 # so the endpoint can't be used to write arbitrary text into the logs.
 UI_EVENTS = frozenset({
     "page_loaded",
     "page_load_failed",
+    "network_load_failed",
     "route_requested",
     "route_found",
     "route_failed",
@@ -50,9 +54,9 @@ def connect_read_only(database_path):
     return sqlite3.connect(f"{Path(database_path).resolve().as_uri()}?mode=ro", uri=True)
 
 
-def load_metro_graph(database_path=DATABASE_PATH):
+def load_metro_graph(database_path=DATABASE_PATH, interchange_penalty=INTERCHANGE_PENALTY):
     """Load the SQLite metro data into the in-memory routing graph."""
-    graph = MetroGraph()
+    graph = MetroGraph(interchange_penalty=interchange_penalty)
 
     if not Path(database_path).is_file():
         raise FileNotFoundError(f"Database file not found: {database_path}")
@@ -167,6 +171,8 @@ def route_to_dict(result):
         "stations": station_details,
         "segments": segments,
         "total_time": result.total_time,
+        # total_time = time on trains and walkways + the allowance for changing lines.
+        "interchange_time": result.interchange_time,
         "interchanges": result.interchanges,
         "interchange_stations": interchange_stations,
     }

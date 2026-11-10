@@ -43,6 +43,7 @@
               <div class="via-list" id="via-list" aria-label="Stops on the way"></div>
               <div class="actions">
                 <button class="add-stop" id="add-stop" type="button" disabled>Add stop</button>
+                <button class="reset-planner" id="reset-planner" type="button"> ↺ Reset</button>
                 <div class="mode-group" role="group" aria-label="Route preference">
                   <button class="mode active" type="button" data-mode="fastest" aria-pressed="true">Fastest</button>
                   <button class="mode" type="button" data-mode="fewest_interchanges" aria-pressed="false">Fewest interchanges</button>
@@ -68,9 +69,15 @@
       </div>
 
       <section class="window" aria-labelledby="map-title">
-        <div class="title-bar"><h2 id="map-title">Delhi Metro network</h2></div>
+        <div class="title-bar">
+            <h2 id="map-title">Delhi Metro network</h2>
+            <button class="title-reset" id="reset-map" type="button">
+                ↺ Reset map
+            </button>
+        </div>
         <div class="window-body">
           <div class="map-frame"><div id="route-map" role="img" aria-label="Geographic map of the Delhi Metro network"></div></div>
+          <p class="map-hint" id="map-hint">Use two fingers to move or zoom the map.</p>
           <div class="line-legend" id="line-legend" aria-label="Metro line colours"></div>
         </div>
         <div class="status-bar"><span id="api-status">Connecting to route engine</span><span id="map-badge">Whole network</span></div>
@@ -133,6 +140,7 @@
     applyTheme(theme);
     logEvent('theme_changed', { theme });
   });
+  document.getElementById('reset-map').addEventListener('click', resetMapView);
 
   const sourceSelect = document.getElementById('source');
   const destinationSelect = document.getElementById('destination');
@@ -142,6 +150,7 @@
   let networkLayer = null;
   let routeLayer = null;
   let networkData = null;
+  let networkBounds = null;
   const stationById = new Map();
   const edgeLayers = [];
   const stationDots = new Map();
@@ -187,7 +196,12 @@
     if (!response.ok) throw new Error(data.message || 'Could not load the metro network map.');
     networkData = data;
     data.stations.forEach(station => stationById.set(String(station.id), station));
-    metroMap = L.map('route-map', { zoomControl: true, scrollWheelZoom: true, preferCanvas: true });
+    // On touch screens one finger scrolls the page, not the map, so a map that fills
+    // the screen can't trap the page; two fingers pinch-zoom and pan it.
+    metroMap = L.map('route-map', {
+      zoomControl: true, scrollWheelZoom: true, preferCanvas: true,
+      dragging: !COARSE_POINTER, zoomSnap: 0.25, zoomDelta: 0.5,
+    });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
       maxZoom: 19,
@@ -216,18 +230,36 @@
     // Canvas measurement doesn't wait for web fonts, so load the label fonts first.
     try { await Promise.all([LABEL_FONT, INTERCHANGE_LABEL_FONT, TOOLTIP_FONT].map(font => document.fonts.load(font))); } catch (_) {}
     buildStationLabels(data);
-    const coords = data.stations.filter(st => Number.isFinite(Number(st.lat)) && Number.isFinite(Number(st.lon))).map(st => [st.lat, st.lon]);
-    if (coords.length) metroMap.fitBounds(coords, { padding: [12, 12] });
+    const coords = data.stations
+    .filter(st => Number.isFinite(Number(st.lat)) && Number.isFinite(Number(st.lon)))
+    .map(st => [st.lat, st.lon]);
+    if (coords.length) {
+        networkBounds = L.latLngBounds(coords);
+        metroMap.fitBounds(networkBounds, { padding: [12, 12] });
+}
     declutterLabels();
     const lineEntries = Object.entries(data.lines || {});
     document.getElementById('line-legend').innerHTML = lineEntries.map(([id, info]) =>
       `<span class="legend-item"><i class="legend-swatch" style="background:${info.color}"></i>${escapeHtml(info.name)}</span>`
     ).join('');
   }
+
+  function resetMapView() {
+    if (!metroMap || !networkBounds) return;
+
+    metroMap.fitBounds(networkBounds, {
+        padding: [12, 12],
+        animate: true,
+        duration: 0.6
+    });
+}
   // Keep these in sync with .station-label and .endpoint-tooltip in techno.css.
   const LABEL_FONT = '11px Tahoma, Verdana, "Segoe UI", sans-serif';
   const INTERCHANGE_LABEL_FONT = 'bold 11px Tahoma, Verdana, "Segoe UI", sans-serif';
   const TOOLTIP_FONT = '12px "Pixelify Sans", Tahoma, Verdana, sans-serif';
+  const COARSE_POINTER = window.matchMedia('(pointer: coarse)').matches;
+  // Below this map width, START / DESTINATION tags go above their dots and wrap.
+  const COMPACT_MAP_WIDTH = 500;
   // Fonts above match --map-label and .endpoint-tooltip in techno.css.
   const labelCanvas = document.createElement('canvas').getContext('2d');
   function measureText(text, font) {
@@ -354,6 +386,7 @@
         .addTo(routeLayer);
     });
     const viaIds = new Set((data.via || []).map(String));
+    const compact = metroMap.getSize().x < COMPACT_MAP_WIDTH;
     let endpointTagWidth = 0;
     data.stations.forEach((station, i) => {
       const point = stationById.get(String(station.id));
@@ -383,7 +416,9 @@
         L.circleMarker([point.lat, point.lon], {
           radius: 8, color: '#4a4639', weight: 2.5,
           fillColor: isStart ? '#5e8f5a' : '#c5574a', fillOpacity: 1
-        }).bindTooltip(tooltip, { permanent: true, direction: isStart ? 'left' : 'right', offset: [10, 0], className: 'endpoint-tooltip' }).addTo(routeLayer);
+        }).bindTooltip(tooltip, compact
+          ? { permanent: true, direction: 'top', offset: [0, -10], className: 'endpoint-tooltip is-compact' }
+          : { permanent: true, direction: isStart ? 'left' : 'right', offset: [10, 0], className: 'endpoint-tooltip' }).addTo(routeLayer);
       } else {
         L.circleMarker([point.lat, point.lon], {
           radius: interchange ? 7 : 4.5,
@@ -396,20 +431,144 @@
       const routeBounds = L.latLngBounds(coords);
       requestAnimationFrame(() => {
         metroMap.invalidateSize();
-        // Side padding leaves room for the START / DESTINATION tags, which sit beside their dots;
-        // on a narrow (phone) map the route itself matters more, so the padding is capped harder.
+        // Side padding leaves room for the START / DESTINATION tags, which sit beside their dots.
+        // On a narrow (phone) map the tags sit above the dots instead, so the padding goes on top.
         const mapWidth = metroMap.getSize().x;
-        const padX = Math.max(48, Math.min(endpointTagWidth, mapWidth * (mapWidth < 500 ? 0.15 : 0.4)));
-        metroMap.fitBounds(routeBounds, { padding: [padX, 48], maxZoom: 14, animate: true, duration: 0.6 });
+        const padX = Math.max(48, Math.min(endpointTagWidth, mapWidth * 0.4));
+        const fit = compact
+          ? { paddingTopLeft: [24, 64], paddingBottomRight: [24, 24] }
+          : { padding: [padX, 48] };
+        metroMap.fitBounds(routeBounds, { ...fit, maxZoom: 14, animate: true, duration: 0.6 });
       });
     }
     const viaNames = (data.via || []).map(id => stationById.get(String(id))?.name || id);
     document.getElementById('map-title').textContent = [data.stations[0].name, ...viaNames, data.stations[data.stations.length-1].name].join(' → ');
     document.getElementById('map-badge').textContent = `${data.stations.length} stations on this route`;
   }
+
+
+function clearRouteDisplay() {
+    // Clear the route drawn on the map.
+    if (routeLayer) {
+        routeLayer.clearLayers();
+    }
+
+    // Restore the original metro network appearance.
+    edgeLayers.forEach(({ layer, color }) => {
+        layer.setStyle({ color, opacity: 0.72 });
+    });
+
+    stationDots.forEach(dot => {
+        dot.setStyle({ opacity: 1, fillOpacity: 0.9 });
+    });
+
+    routeStationIds.clear();
+    pinnedLabelIds.clear();
+
+    if (metroMap) {
+        metroMap.getContainer().classList.remove('has-route');
+        declutterLabels();
+    }
+
+    // Reset route summary.
+    document.getElementById('total-time').textContent = '—';
+    document.getElementById('time-detail').textContent = '';
+    document.getElementById('interchanges').textContent = '—';
+    document.getElementById('station-count').textContent = 'No stations yet';
+    document.getElementById('stop-count').textContent = '0 stops';
+
+    // Reset route list.
+    routeList.innerHTML =
+        '<li class="empty-route">Choose two stations and press Find route to see every stop.</li>';
+
+    // Reset map heading and badge.
+    document.getElementById('map-title').textContent = 'Delhi Metro network';
+    document.getElementById('map-badge').textContent = 'Whole network';
+}
+
+function resetPlanner() {
+    // Clear source and destination dropdowns.
+    sourceSelect.value = '';
+    destinationSelect.value = '';
+
+    // Remove all intermediate stops.
+    viaList.innerHTML = '';
+    refreshViaControls();
+
+    // Restore default route preference.
+    selectedMode = 'fastest';
+
+    document.querySelectorAll('.mode').forEach(button => {
+        const active = button.dataset.mode === 'fastest';
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
+
+    // Clear the route drawn on the map.
+    if (routeLayer) {
+        routeLayer.clearLayers();
+    }
+
+    // Restore original network appearance.
+    edgeLayers.forEach(({ layer, color }) => {
+        layer.setStyle({ color, opacity: 0.72 });
+    });
+
+    stationDots.forEach(dot => {
+        dot.setStyle({ opacity: 1, fillOpacity: 0.9 });
+    });
+
+    routeStationIds.clear();
+    pinnedLabelIds.clear();
+
+    if (metroMap) {
+        metroMap.getContainer().classList.remove('has-route');
+
+        // Return to the full network view.
+        const coords = networkData.stations
+            .filter(st => Number.isFinite(Number(st.lat)) &&
+                          Number.isFinite(Number(st.lon)))
+            .map(st => [st.lat, st.lon]);
+
+        if (coords.length) {
+            metroMap.fitBounds(coords, {
+                padding: [12, 12],
+                animate: true
+            });
+        }
+
+        declutterLabels();
+    }
+
+    // Reset route information.
+    document.getElementById('total-time').textContent = '—';
+    document.getElementById('time-detail').textContent = '';
+    document.getElementById('interchanges').textContent = '—';
+    document.getElementById('station-count').textContent = 'No stations yet';
+    document.getElementById('stop-count').textContent = '0 stops';
+
+    routeList.innerHTML =
+        '<li class="empty-route">Choose two stations and press Find route to see every stop.</li>';
+
+    document.getElementById('map-title').textContent =
+        'Delhi Metro network';
+    document.getElementById('map-badge').textContent =
+        'Whole network';
+
+    // Clear validation/error messages.
+    message.textContent = '';
+
+    logEvent('planner_reset', {});
+}
+
+document.getElementById('reset-planner').addEventListener('click', resetPlanner);
   function renderRoute(data) {
     document.getElementById('total-time').textContent = formatDuration(data.total_time);
-    document.getElementById('time-detail').textContent = '';
+    // The total includes a fixed allowance for each change of line (see INTERCHANGE_PENALTY in app.py).
+    const perChange = data.interchanges ? (data.interchange_time || 0) / data.interchanges : 0;
+    document.getElementById('time-detail').textContent = perChange
+      ? `Includes ${formatDuration(perChange)} for each change of line`
+      : '';
     document.getElementById('interchanges').textContent = data.interchanges;
     document.getElementById('station-count').textContent = `${data.stations.length} stations`;
     document.getElementById('stop-count').textContent = `${data.stations.length} stops`;
@@ -477,6 +636,11 @@
   }
   async function findRoute() {
     message.textContent = '';
+
+    // Clear any previously displayed route before validating
+    // the new source, destination and via stops.
+    clearRouteDisplay();
+
     const via = viaSelects().map(select => select.value);
     if (!sourceSelect.value || !destinationSelect.value) { rejectInput('missing_endpoint', 'Choose both a starting station and a destination.'); return; }
     if (via.some(value => !value)) { rejectInput('blank_stop', 'Choose a station for each via stop, or remove it.'); return; }

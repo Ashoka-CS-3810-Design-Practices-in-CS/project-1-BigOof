@@ -44,18 +44,33 @@ class RouteSegment:
 
 @dataclass(frozen=True)
 class RouteResult:
-	"""The route and the totals produced by either route algorithm."""
+	"""The route and the totals produced by either route algorithm.
+
+	``total_time`` is the time on trains and walkways plus ``interchange_time``, the
+	graph's interchange penalty for each line change.
+	"""
 
 	stations: tuple[StationId, ...]
 	segments: tuple[RouteSegment, ...]
 	total_time: float
 	interchanges: int
+	interchange_time: float = 0
 
 
 class MetroGraph:
-	"""Adjacency-list representation of a metro network."""
+	"""Adjacency-list representation of a metro network.
 
-	def __init__(self) -> None:
+	``interchange_penalty`` is the time, in the same units as travel times, allowed for
+	each change of line: walking between platforms and waiting for the next train.
+	The fastest route minimises travel time plus this allowance, so a route that changes
+	lines four times to save a minute doesn't beat a direct train. With the default 0,
+	changes are free and the fastest route is plain Dijkstra on travel time.
+	"""
+
+	def __init__(self, interchange_penalty: float = 0) -> None:
+		if interchange_penalty < 0:
+			raise ValueError("Interchange penalty must be non-negative")
+		self.interchange_penalty = interchange_penalty
 		self.stations: dict[StationId, Station] = {}
 		self.adjacency: dict[StationId, list[Edge]] = {}
 
@@ -99,6 +114,9 @@ class MetroGraph:
 	def fastestRoute(self, source: StationId, destination: StationId) -> RouteResult:
 		"""Return the route with minimum total estimated travel time."""
 		self._check_stations(source, destination)
+		if self.interchange_penalty and source != destination:
+			# Line changes now cost time, so the search has to know which line you're on.
+			return self.routeVia((source, destination))
 		distances: dict[StationId, float] = {code: inf for code in self.stations}
 		predecessors: dict[StationId, tuple[StationId, Edge]] = {}
 		distances[source] = 0
@@ -170,6 +188,9 @@ class MetroGraph:
 		the next stop still to visit. Reaching that stop advances the stage at no cost, so
 		the whole journey is optimised at once -- including whether a line change happens
 		at an intermediate station -- rather than gluing independently optimised legs.
+
+		The cost is (interchanges, time) when ``fewest_interchanges`` is set, otherwise
+		just time; either way each line change adds the graph's interchange penalty to time.
 		"""
 		stops = tuple(stops)
 		if len(stops) < 2:
@@ -187,6 +208,9 @@ class MetroGraph:
 
 		State = tuple[StationId, Optional[str], int]
 		start: State = (stops[0], None, advance(stops[0], 1))
+		penalty = self.interchange_penalty
+		# Only track the current line when changing it can cost something.
+		track_line = fewest_interchanges or bool(penalty)
 		# Cost is (interchanges, time); interchanges stay 0 in fastest mode.
 		distances: dict[State, tuple[int, float]] = {start: (0, 0)}
 		predecessors: dict[State, tuple[State, Edge]] = {}
@@ -203,13 +227,16 @@ class MetroGraph:
 				final_state = state
 				break
 			for edge in self.adjacency[current]:
-				added_change = int(fewest_interchanges) * self._is_change(arrival_line, edge)
+				changed = self._is_change(arrival_line, edge) if track_line else 0
 				next_state: State = (
 					edge.station,
-					self._line_after(arrival_line, edge) if fewest_interchanges else None,
+					self._line_after(arrival_line, edge) if track_line else None,
 					advance(edge.station, stage),
 				)
-				candidate = (changes + added_change, time + edge.travel_time)
+				candidate = (
+					changes + int(fewest_interchanges) * changed,
+					time + edge.travel_time + penalty * changed,
+				)
 				if candidate < distances.get(next_state, (inf, inf)):
 					distances[next_state] = candidate
 					predecessors[next_state] = (state, edge)
@@ -277,8 +304,7 @@ class MetroGraph:
 		"""1 if boarding ``edge`` means changing from the line you arrived on."""
 		return int(not edge.walk and arrival_line is not None and arrival_line != edge.line)
 
-	@staticmethod
-	def _result(source: StationId, segments: tuple[RouteSegment, ...]) -> RouteResult:
+	def _result(self, source: StationId, segments: tuple[RouteSegment, ...]) -> RouteResult:
 		stations = [source]
 		for segment in segments:
 			stations.append(segment.to_station)
@@ -286,11 +312,13 @@ class MetroGraph:
 		# Blue -> walk -> Aqua is one interchange, matching the search's cost model.
 		ridden = [segment.line for segment in segments if not segment.walk]
 		interchanges = sum(previous != current for previous, current in zip(ridden, ridden[1:]))
+		interchange_time = self.interchange_penalty * interchanges
 		return RouteResult(
 			tuple(stations),
 			segments,
-			sum(segment.travel_time for segment in segments),
+			sum(segment.travel_time for segment in segments) + interchange_time,
 			interchanges,
+			interchange_time,
 		)
 
 
