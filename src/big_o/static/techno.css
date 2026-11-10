@@ -100,8 +100,16 @@ button:disabled { color: var(--shadow); text-shadow: 1px 1px var(--emboss); curs
 /* Planner */
 .planner { display: grid; grid-template-columns: minmax(0,1fr) var(--tap) minmax(0,1fr); gap: 8px 10px; align-items: end; }
 .field-label { display: block; margin: 0 0 4px; font-size: 14px; }
-select { width: 100%; height: calc(var(--tap) + 2px); appearance: none; font: 15px var(--body); color: var(--text); background: var(--field); border: 0; border-radius: 0; box-shadow: var(--sunken); padding: 4px 26px 4px 6px; }
-select:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
+select, .station-input { width: 100%; height: calc(var(--tap) + 2px); appearance: none; font: 15px var(--body); color: var(--text); background: var(--field); border: 0; border-radius: 0; box-shadow: var(--sunken); padding: 4px 26px 4px 6px; }
+select:focus-visible, .station-input:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
+.station-input::placeholder { color: var(--muted); }
+/* Search results under a station box; above the map, which follows it on narrow screens. */
+.station-list { position: absolute; top: 100%; left: 0; right: 0; z-index: 1000; max-height: 260px; overflow-y: auto; margin: 2px 0 0; padding: 2px; list-style: none; background: var(--field); box-shadow: var(--window); }
+.station-list li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; cursor: default; }
+.station-list li[aria-selected="true"] { background: var(--select); color: var(--select-text); }
+.station-list .station-code { color: var(--muted); }
+.station-list li[aria-selected="true"] .station-code { color: inherit; }
+.station-list .station-empty { color: var(--muted); }
 .select-wrap { position: relative; }
 .select-wrap::before { content: ''; position: absolute; top: 2px; right: 2px; bottom: 2px; width: 18px; background: var(--face); box-shadow: var(--raised); pointer-events: none; }
 .select-wrap::after { content: ''; position: absolute; top: 50%; right: 7px; margin-top: -2px; border: 4px solid transparent; border-bottom: 0; border-top-color: var(--text); pointer-events: none; }
@@ -194,7 +202,8 @@ select:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
    the page when one is focused. */
 @media (pointer: coarse) {
   body { --tap: 44px; }
-  select { font-size: 16px; }
+  select, .station-input { font-size: 16px; }
+  .station-list li { padding: 10px 8px; }
   .map-hint { display: block; }
   #route-map .leaflet-bar a { width: 36px; height: 36px; line-height: 36px; }
 }

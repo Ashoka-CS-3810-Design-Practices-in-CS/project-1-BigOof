@@ -344,7 +344,7 @@
       stationOptions = '<option value="">Choose a station…</option>' + stations.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
       for (const select of [sourceSelect, destinationSelect]) select.innerHTML = stationOptions;
       addStopButton.disabled = false;
-      if (stations.length > 1) { sourceSelect.value = stations[0].id; destinationSelect.value = stations[1].id; }
+      if (stations.length > 1) { setStation(sourceSelect, stations[0].id); setStation(destinationSelect, stations[1].id); }
     } catch (error) {
       document.getElementById('api-status').textContent = 'Route engine unavailable';
       message.textContent = error.message + ' Make sure the Flask server is running.';
@@ -488,8 +488,8 @@ function clearRouteDisplay() {
 
 function resetPlanner() {
     // Clear source and destination dropdowns.
-    sourceSelect.value = '';
-    destinationSelect.value = '';
+    setStation(sourceSelect, '');
+    setStation(destinationSelect, '');
 
     // Remove all intermediate stops.
     viaList.innerHTML = '';
@@ -621,15 +621,131 @@ document.getElementById('reset-planner').addEventListener('click', resetPlanner)
     row.className = 'via-row';
     row.innerHTML = `<label class="field-label" for="${id}"></label><div class="via-controls"><div class="select-wrap"><select id="${id}">${stationOptions}</select></div><button type="button" class="via-remove" aria-label="Remove this stop" title="Remove stop">×</button></div>`;
     const select = row.querySelector('select');
-    select.value = value;
     row.querySelector('.via-remove').addEventListener('click', () => {
       row.remove(); refreshViaControls(); addStopButton.focus();
       logEvent('stop_removed', { stops: viaSelects().length });
     });
     viaList.appendChild(row);
+    const input = attachStationPicker(select);
+    setStation(select, value);
     refreshViaControls();
-    if (!value) select.focus();
+    if (!value) input.focus();
   }
+
+  // Station pickers: a text box that searches stations by name or code, in front of
+  // a hidden <select> that still holds the chosen station ID for the rest of the page.
+  // Change a picker's station with setStation, so the text box follows.
+  function setStation(select, id) {
+    select.value = id;
+    select.dispatchEvent(new Event('change'));
+  }
+  function normaliseStationText(text) { return String(text).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+  function matchStations(query) {
+    const words = normaliseStationText(query).split(' ').filter(Boolean);
+    if (!words.length) return stations;
+    // Every word must appear in the name; an exact code comes first, then names that
+    // start with the first word, then names with a word starting with it.
+    const ranked = [];
+    for (const station of stations) {
+      const name = normaliseStationText(station.name);
+      if (normaliseStationText(station.id) === words.join(' ')) ranked.push([0, station]);
+      else if (words.every(word => name.includes(word))) {
+        ranked.push([name.startsWith(words[0]) ? 1 : name.split(' ').some(part => part.startsWith(words[0])) ? 2 : 3, station]);
+      }
+    }
+    return ranked.sort((a, b) => a[0] - b[0]).map(([, station]) => station);
+  }
+  function attachStationPicker(select) {
+    const input = document.createElement('input');
+    const list = document.createElement('ul');
+    Object.assign(input, { type: 'text', id: `${select.id}-search`, className: 'station-input', autocomplete: 'off', spellcheck: false, placeholder: 'Type a station name or code' });
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-expanded', 'false');
+    input.setAttribute('aria-controls', `${select.id}-list`);
+    Object.assign(list, { id: `${select.id}-list`, className: 'station-list', hidden: true });
+    list.setAttribute('role', 'listbox');
+    select.hidden = true;
+    select.tabIndex = -1;
+    select.after(input, list);
+    const label = document.querySelector(`label[for="${select.id}"]`);
+    if (label) label.htmlFor = input.id;
+
+    let matches = [];
+    let active = -1;
+    let typed = false; // whether the text was edited since the box last showed a station
+    const nameOf = id => stations.find(station => station.id === id)?.name || '';
+
+    function highlight(index) {
+      list.querySelector('[aria-selected="true"]')?.setAttribute('aria-selected', 'false');
+      active = index;
+      const option = index >= 0 && matches.length ? list.children[index] : null;
+      if (!option) { input.removeAttribute('aria-activedescendant'); return; }
+      option.setAttribute('aria-selected', 'true');
+      option.scrollIntoView({ block: 'nearest' });
+      input.setAttribute('aria-activedescendant', option.id);
+    }
+    function open(query) {
+      matches = matchStations(query);
+      list.innerHTML = matches.length
+        ? matches.map((station, i) => `<li role="option" id="${list.id}-${i}" data-index="${i}" aria-selected="false"><span>${escapeHtml(station.name)}</span><span class="station-code">${escapeHtml(station.id)}</span></li>`).join('')
+        : '<li class="station-empty">No matching station</li>';
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      // While typing, the best match is ready to pick; when just opened, the current station is.
+      highlight(query ? 0 : matches.findIndex(station => station.id === select.value));
+    }
+    function close() {
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    }
+    function choose() {
+      if (typed && !input.value.trim()) setStation(select, '');
+      else if (matches[active]) setStation(select, matches[active].id);
+      typed = false;
+      input.value = nameOf(select.value);
+      close();
+    }
+
+    select.addEventListener('change', () => { input.value = nameOf(select.value); });
+    // Focus alone doesn't open the list, so a new via stop's list doesn't cover the
+    // buttons below it; clicking, typing or the down arrow does.
+    input.addEventListener('focus', () => { typed = false; input.select(); });
+    input.addEventListener('click', () => { if (list.hidden) open(typed ? input.value : ''); });
+    input.addEventListener('input', () => { typed = true; open(input.value); });
+    input.addEventListener('keydown', event => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (list.hidden) { open(typed ? input.value : ''); return; }
+        if (!matches.length) return;
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        highlight(active < 0 ? (step > 0 ? 0 : matches.length - 1) : (active + step + matches.length) % matches.length);
+      } else if (event.key === 'Enter' && !list.hidden) {
+        event.preventDefault();
+        choose();
+      } else if (event.key === 'Escape' && !list.hidden) {
+        event.preventDefault();
+        typed = false;
+        input.value = nameOf(select.value);
+        close();
+      }
+    });
+    // Leaving the box picks the best match for what was typed, so the box never shows
+    // text that isn't the station the route will use.
+    input.addEventListener('blur', () => { if (typed) choose(); else close(); });
+    // mousedown would otherwise blur the box before the click lands on an option.
+    list.addEventListener('mousedown', event => event.preventDefault());
+    list.addEventListener('click', event => {
+      const option = event.target.closest('[data-index]');
+      if (!option) return;
+      highlight(Number(option.dataset.index));
+      choose();
+    });
+    return input;
+  }
+  attachStationPicker(sourceSelect);
+  attachStationPicker(destinationSelect);
   function rejectInput(reason, text) {
     message.textContent = text;
     logEvent('validation_failed', { reason });
@@ -674,12 +790,38 @@ document.getElementById('reset-planner').addEventListener('click', resetPlanner)
     logEvent('mode_changed', { mode: selectedMode });
   }));
   document.getElementById('find-route').addEventListener('click',findRoute);
-  document.getElementById('swap').addEventListener('click',()=>{
-    const old=sourceSelect.value; sourceSelect.value=destinationSelect.value; destinationSelect.value=old;
-    const selects = viaSelects(), values = selects.map(s => s.value).reverse();
-    selects.forEach((select, i) => { select.value = values[i]; });
-    logEvent('stations_swapped', { via_count: selects.length });
-  });
+  
+document.getElementById('swap').addEventListener('click', () => {
+    // Check whether a route is currently displayed.
+    const hasDisplayedRoute = routeList.querySelector('.stop') !== null;
+
+    // Swap source and destination.
+    const oldSource = sourceSelect.value;
+    setStation(sourceSelect, destinationSelect.value);
+    setStation(destinationSelect, oldSource);
+
+    // Reverse the order of intermediate stops.
+    const selects = viaSelects();
+    const values = selects.map(select => select.value).reverse();
+
+    selects.forEach((select, i) => {
+        setStation(select, values[i]);
+    });
+
+    // Clear any previous validation message.
+    message.textContent = '';
+
+    logEvent('stations_swapped', {
+        via_count: selects.length
+    });
+
+    // Recalculate the route in the new direction,
+    // but only if a route was already displayed.
+    if (hasDisplayedRoute && sourceSelect.value && destinationSelect.value) {
+        findRoute();
+    }
+});
+
   addStopButton.addEventListener('click', () => {
     addViaStop();
     logEvent('stop_added', { stops: viaSelects().length });

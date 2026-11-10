@@ -35,6 +35,7 @@ UI_EVENTS = frozenset({
     "stop_added",
     "stop_removed",
     "theme_changed",
+    "planner_reset",
     "js_error",
 })
 MAX_UI_DETAIL_FIELDS = 10

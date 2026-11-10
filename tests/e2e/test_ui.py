@@ -5,17 +5,24 @@ import logging
 import re
 import time
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
 from big_o.app import LINE_METADATA, metro_graph
 
 
+def choose_station(field: Locator, name: str) -> None:
+    """Type into a station search box and click the option with exactly that name."""
+    field.fill(name)
+    listbox = field.page.locator(f"#{field.get_attribute('aria-controls')}")
+    listbox.get_by_role("option").filter(has=field.page.get_by_text(name, exact=True)).click()
+
+
 def find_route(page: Page, source: str, destination: str, via: tuple[str, ...] = ()) -> None:
-    page.select_option("#source", label=source)
-    page.select_option("#destination", label=destination)
+    choose_station(page.locator("#source-search"), source)
+    choose_station(page.locator("#destination-search"), destination)
     for name in via:
         page.click("#add-stop")
-        page.locator(".via-row select").last.select_option(label=name)
+        choose_station(page.locator(".via-row .station-input").last, name)
     page.click("#find-route")
 
 
@@ -101,11 +108,11 @@ def test_route_error_message_names_stations(app_page: Page):
 
 
 def test_swap_exchanges_endpoints_and_reverses_stops(app_page: Page, station_id):
-    app_page.select_option("#source", label="Central Secretariat")
-    app_page.select_option("#destination", label="Mandi House")
+    choose_station(app_page.locator("#source-search"), "Central Secretariat")
+    choose_station(app_page.locator("#destination-search"), "Mandi House")
     for name in ("Rajiv Chowk", "Barakhamba"):
         app_page.click("#add-stop")
-        app_page.locator(".via-row select").last.select_option(label=name)
+        choose_station(app_page.locator(".via-row .station-input").last, name)
 
     app_page.click("#swap")
 
@@ -115,6 +122,54 @@ def test_swap_exchanges_endpoints_and_reverses_stops(app_page: Page, station_id)
         station_id("Barakhamba"),
         station_id("Rajiv Chowk"),
     ]
+    # The search boxes show the swapped stations too.
+    expect(app_page.locator("#source-search")).to_have_value("Mandi House")
+    expect(app_page.locator("#destination-search")).to_have_value("Central Secretariat")
+    assert app_page.locator(".via-row .station-input").evaluate_all("els => els.map(el => el.value)") == [
+        "Barakhamba",
+        "Rajiv Chowk",
+    ]
+
+
+# --- Station search ----------------------------------------------------------
+
+def test_station_search_matches_words_in_any_spelling(app_page: Page):
+    source = app_page.locator("#source-search")
+    source.fill("noida 52")
+    expect(app_page.locator("#source-list [role=option]")).to_have_count(1)
+    expect(app_page.locator("#source-list [role=option]")).to_contain_text("Noida Sec-52")
+
+    source.fill("zzzz")
+    expect(app_page.locator("#source-list")).to_have_text("No matching station")
+
+
+def test_station_search_by_code_and_keyboard(app_page: Page, station_id):
+    source = app_page.locator("#source-search")
+    source.fill(station_id("Mandi House"))
+    source.press("Enter")
+
+    expect(source).to_have_value("Mandi House")
+    expect(app_page.locator("#source")).to_have_value(station_id("Mandi House"))
+    expect(app_page.locator("#source-list")).to_be_hidden()
+
+
+def test_station_search_escape_keeps_previous_station(app_page: Page, station_id):
+    choose_station(app_page.locator("#source-search"), "Rajiv Chowk")
+    source = app_page.locator("#source-search")
+    source.fill("hauz")
+    source.press("Escape")
+
+    expect(source).to_have_value("Rajiv Chowk")
+    expect(app_page.locator("#source")).to_have_value(station_id("Rajiv Chowk"))
+
+
+def test_leaving_station_search_picks_best_match(app_page: Page, station_id):
+    source = app_page.locator("#source-search")
+    source.fill("kashmere")
+    source.press("Tab")
+
+    expect(source).to_have_value("Kashmere Gate")
+    expect(app_page.locator("#source")).to_have_value(station_id("Kashmere Gate"))
 
 
 # --- Intermediate (via) stops ------------------------------------------------
@@ -151,8 +206,8 @@ def test_route_via_intermediate_station(app_page: Page, station_id):
 
 
 def test_rejects_blank_stop(app_page: Page):
-    app_page.select_option("#source", label="Central Secretariat")
-    app_page.select_option("#destination", label="Mandi House")
+    choose_station(app_page.locator("#source-search"), "Central Secretariat")
+    choose_station(app_page.locator("#destination-search"), "Mandi House")
     app_page.click("#add-stop")
     app_page.click("#find-route")
 
