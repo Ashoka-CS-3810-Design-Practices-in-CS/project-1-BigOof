@@ -1,0 +1,141 @@
+/* Meteronormative — vintage chart theme.
+   Loads AFTER the inline <style>, so it overrides it without touching your layout.
+   Uses native CSS nesting (Chrome 120+, Safari 17.2+, Firefox 117+). */
+
+body, body[data-theme] {
+  /* Swap these three if you buy/own Bilena and Vintage Rough. */
+  --f-head: 'Cinzel', 'Trajan Pro', Georgia, serif;
+  --f-body: 'IM Fell English', Georgia, 'Times New Roman', serif;
+  --f-type: 'Special Elite', 'Courier New', monospace;
+
+  --ink: #33261a; --ink-2: #4a3a28;
+  --paper: #f2e5c3; --paper-2: #dccfa8;          /* cards: ticket + map sheet */
+  --text: #3a2c1c; --muted: #6e5c42;
+  --on-text: #f2e5c3;                            /* text on a var(--text) fill */
+  --title: #9a4326; --title-shadow: #d3bd86;
+  --line: rgba(58,44,28,.4); --frame: #3a2c1c;
+  --gold: #8f3b22; --gold-light: #7a3f22;
+  --ticket: #b9501c;
+
+  --rose: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='50' cy='50' r='34'/%3E%3Ccircle cx='50' cy='50' r='28' stroke-width='1'/%3E%3C/g%3E%3Cpath d='M50 2 58 42 98 50 58 58 50 98 42 58 2 50 42 42Z'/%3E%3C/svg%3E");
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .2 0 0 0 0 .08 0 0 0 .25 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  --sheet-shadow: inset 0 0 0 7px var(--paper), inset 0 0 0 8px var(--ink), inset 0 0 0 11px var(--paper), inset 0 0 0 12px rgba(51,38,26,.6), 0 18px 32px -14px rgba(0,0,0,.45);
+
+  color: var(--text);
+  font-family: var(--f-body);
+  background-color: #e4d3a6;
+  background-image: var(--noise),
+    radial-gradient(ellipse at 50% 30%, rgba(255,244,210,.65), transparent 62%),
+    radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(94,62,24,.4) 100%);
+  background-attachment: fixed;
+}
+body[data-theme="dark"] {
+  --text: #efe3c4; --muted: #b9a98a;
+  --on-text: #33261a;
+  --title: #e0733a; --title-shadow: #0b1410;
+  --line: rgba(239,227,196,.3); --frame: rgba(239,227,196,.6);
+  --gold: #e3b866; --gold-light: #f0cf8a; --ticket: #d9622b;
+  background-color: #1c2b25;
+  background-image: var(--noise),
+    radial-gradient(ellipse at 50% 30%, rgba(120,150,110,.2), transparent 62%),
+    radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(0,0,0,.55) 100%);
+}
+
+body, body[data-theme] {
+  /* Frame the whole page like a chart border */
+  .page { width: min(1180px, calc(100% - 64px)); margin: 26px auto; padding: 30px 36px 40px;
+    border: 4px double var(--frame); outline: 1px solid var(--frame); outline-offset: 7px; }
+  .cursor-aura { display: none; }
+
+  /* Header */
+  header { margin-bottom: 18px; }
+  .brand { font: 700 14px var(--f-head); letter-spacing: .14em; }
+  .brand-mark { width: 38px; height: 38px; border-radius: 0; transform: none; background: var(--text); color: transparent;
+    -webkit-mask: var(--rose) center/contain no-repeat; mask: var(--rose) center/contain no-repeat; }
+  .brand-mark span { display: none; }
+  .eyebrow, .brand-descriptor { font: italic 15px/1.3 var(--f-body); letter-spacing: 0; color: var(--muted); }
+  .status { font: 13px var(--f-type); color: var(--muted); }
+  .theme-toggle { font: 13px var(--f-type); color: var(--text); border: 1px solid var(--text); border-radius: 2px; }
+  .theme-toggle:hover { background: var(--text); color: var(--on-text); border-color: var(--text); }
+
+  /* Title: letterpress with an offset shadow, like the ticket specimen */
+  .kinetic-hero { display: block; text-align: center; border-bottom: 0; padding: 4px 0 8px; margin-bottom: 22px; }
+  .kinetic-hero::after { content: ''; display: block; height: 6px; margin-top: 14px; border-top: 1px solid var(--frame); border-bottom: 1px solid var(--frame); }
+  .hero-bottomline { display: none; }
+  .kinetic-title { font: 900 clamp(24px, 5.6vw, 72px)/1 var(--f-head); letter-spacing: .05em; text-align: center;
+    color: var(--title); text-shadow: 3px 3px 0 var(--title-shadow); }
+  .kinetic-char { filter: none; transition: opacity .5s ease, transform .6s cubic-bezier(.2,.75,.15,1); }
+
+  /* Calmer reveals: no blur */
+  .reveal-section, .reveal-section.in-view { filter: none; transform: none; transition: opacity .7s ease; }
+  .map-panel:hover { transform: none; box-shadow: var(--sheet-shadow); }
+
+  /* Planner */
+  .planner { border-bottom: 1px solid var(--line); }
+  .field-label { font: italic 16px var(--f-body); letter-spacing: 0; text-transform: none; color: var(--muted); margin-bottom: 6px; }
+  select { font: 18px var(--f-body); background: var(--paper); color: var(--ink); border: 1px solid var(--ink); border-radius: 2px;
+    padding: 13px 40px 13px 14px; box-shadow: inset 0 0 0 3px var(--paper), inset 0 0 0 4px rgba(51,38,26,.35); }
+  select:focus { outline-color: var(--ticket); }
+  .swap, .via-remove, .add-stop, .mode { color: var(--text); border-color: var(--text); font-family: var(--f-type); }
+  .swap { border-radius: 50%; font-family: var(--f-body); }
+  .via-remove:hover { background: var(--ticket); border-color: var(--ticket); color: #fff6e0; }
+  .add-stop, .mode { border-radius: 2px; font-size: 13px; font-weight: 400; letter-spacing: 0; padding: 10px 16px; }
+  .add-stop:hover:not(:disabled) { border-color: var(--ticket); color: var(--ticket); }
+  .mode.active, .mode:hover, .swap:hover { background: var(--text); color: var(--on-text); border-color: var(--text); }
+  .go { background: var(--ticket); color: #fff6e0; border: 1px solid #5e2509; border-radius: 2px; font: 15px var(--f-type); padding: 10px 22px; }
+  .go:hover { background: #8f3b14; }
+  /* Sits on the paper ticket in both themes, so it can't use the theme's --gold. */
+  .via-chip { font: 11px var(--f-type); letter-spacing: 0; border-radius: 2px; color: #7a3f22; border-color: #8f3b22; }
+  .message { font: italic 18px/1.4 var(--f-body); color: var(--text); }
+
+  /* Route panel as a punched ticket */
+  .route-panel { background: var(--paper); color: var(--ink); border: 0; border-radius: 3px; padding: 0 26px 18px;
+    box-shadow: inset 0 0 0 7px var(--paper), inset 0 0 0 8px rgba(51,38,26,.75);
+    -webkit-mask: radial-gradient(circle 11px at 0 50%, #0000 97%, #000) 0 0/51% 100% no-repeat, radial-gradient(circle 11px at 100% 50%, #0000 97%, #000) 100% 0/51% 100% no-repeat;
+            mask: radial-gradient(circle 11px at 0 50%, #0000 97%, #000) 0 0/51% 100% no-repeat, radial-gradient(circle 11px at 100% 50%, #0000 97%, #000) 100% 0/51% 100% no-repeat; }
+  .route-summary { padding-top: 26px; border-bottom: 2px dashed rgba(51,38,26,.45); }
+  .summary-label { font: 13px var(--f-type); letter-spacing: 0; text-transform: none; color: #7a6648; }
+  .summary-value { font: 700 28px var(--f-head); letter-spacing: .02em; color: var(--ink); }
+  .summary-sub, .stop-meta, .route-list-head span { font: italic 14px var(--f-body); color: #7a6648; }
+  .route-list-head h2 { font: 700 15px var(--f-head); letter-spacing: .08em; color: var(--ink); }
+  .stop-name { font: 17px/1.25 var(--f-body); color: var(--ink); }
+  .line-chip { font: 11px var(--f-type); color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.5); border-radius: 2px; padding: 2px 6px; }
+  .empty-route { font: italic 17px/1.5 var(--f-body); color: #7a6648; }
+
+  /* Map as a framed chart sheet */
+  .map-panel { background: var(--paper); color: var(--ink); border-radius: 3px; padding: 28px 30px 20px; box-shadow: var(--sheet-shadow); }
+  .panel-title { font: 700 17px/1.25 var(--f-head); letter-spacing: .04em; margin-top: 0; }
+  .map-badge { font: 13px var(--f-type); color: #8f3b22; border: 2px solid #8f3b22; border-radius: 2px; padding: 3px 9px; transform: rotate(-2deg); }
+  .map-stage { margin-top: 12px; }
+  #route-map { height: 430px; border-radius: 0; border: 1px solid var(--ink); background: #d9c89b; }
+  .map-stage::after { content: ''; position: absolute; inset: 0; z-index: 5; pointer-events: none; box-shadow: inset 0 0 55px rgba(90,58,20,.5); }
+  .map-stage::before { content: ''; position: absolute; left: 14px; bottom: 36px; width: 72px; height: 72px; z-index: 6; pointer-events: none; opacity: .75;
+    background: var(--ink); -webkit-mask: var(--rose) center/contain no-repeat; mask: var(--rose) center/contain no-repeat; }
+  .leaflet-tile-pane { mix-blend-mode: multiply; filter: sepia(.65) saturate(.8) hue-rotate(-10deg) contrast(.95); }
+  #route-map.has-route .leaflet-tile-pane { filter: sepia(.8) grayscale(.4); opacity: .5; }
+  .leaflet-overlay-pane canvas { filter: saturate(.8) sepia(.18); }
+  .leaflet-container { font-family: var(--f-body); }
+  .leaflet-tooltip { background: var(--paper); color: var(--ink); border: 1px solid var(--ink); border-radius: 2px; box-shadow: none; font: 14px var(--f-body); padding: 3px 8px; }
+  .leaflet-tooltip::before { display: none; }
+  .endpoint-tooltip { background: #8f3b22; color: #f6e9c8; border: 1px solid var(--ink); font: 13px var(--f-type); border-radius: 2px; padding: 3px 8px; }
+  .station-label span { font: 11px/14px var(--f-body); color: #33261a; text-shadow: 0 0 2px #e9dbb0, 0 0 2px #e9dbb0, 0 0 3px #e9dbb0, 0 0 4px #e9dbb0; }
+  .station-label.is-interchange span { font-size: 12.5px; font-weight: 400; font-variant: small-caps; letter-spacing: .03em; }
+  .leaflet-bar { border: 1px solid var(--ink); border-radius: 2px; box-shadow: none; }
+  .leaflet-bar a { background: var(--paper); color: var(--ink); border-bottom: 1px solid var(--ink); }
+  .leaflet-bar a:hover { background: #e3d2a2; }
+  .leaflet-control-attribution { background: rgba(242,229,195,.85); color: #5a4a33; }
+  .legend-item { font: 14px var(--f-body); color: #4a3a28; }
+
+  .foot { font: italic 15px var(--f-body); color: var(--muted); }
+  .foot strong { font: 700 12px var(--f-head); letter-spacing: .1em; color: var(--text); }
+
+  @media (max-width: 760px) {
+    .page { width: calc(100% - 36px); margin: 18px auto; padding: 20px 16px 28px; outline-offset: 5px; }
+    /* Scale the one-line title to the frame's inner width (viewport minus ~76px of margin, padding and border). */
+    .kinetic-title { font-size: clamp(14px, calc((100vw - 76px) / 14), 72px); }
+    #route-map { height: 320px; }
+    .map-panel { padding: 24px 20px 16px; }
+    .route-panel { padding: 0 20px 14px; }
+    .map-stage::before { width: 52px; height: 52px; }
+  }
+}
